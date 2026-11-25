@@ -55,16 +55,16 @@ class Stage2AblationTest(unittest.TestCase):
         torch.set_num_threads(cls.old_threads)
 
     def setUp(self):
-        self.wandb_runs = []
+        self.swanlab_runs = []
         def create_run(**kwargs):
             run = mock.Mock()
-            run.id = kwargs.get("run_id") or f"test-run-{len(self.wandb_runs)}"
-            self.wandb_runs.append(run)
+            run.id = kwargs.get("run_id") or f"test-run-{len(self.swanlab_runs)}"
+            self.swanlab_runs.append(run)
             return run
-        patcher = mock.patch.object(runner, "initialize_wandb_run", side_effect=create_run)
-        self.wandb_init = patcher.start()
+        patcher = mock.patch.object(runner, "initialize_swanlab_run", side_effect=create_run)
+        self.swanlab_init = patcher.start()
         self.addCleanup(patcher.stop)
-        patcher = mock.patch.object(runner, "wandb_confusion_matrix", return_value="confusion-chart")
+        patcher = mock.patch.object(runner, "swanlab_confusion_matrix", return_value="confusion-chart")
         self.confusion = patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -75,7 +75,7 @@ class Stage2AblationTest(unittest.TestCase):
         for here, there in (("batch_size", "bs"), ("epochs", "epoch"),
                             ("learning_rate", "lr"), ("weight_decay", "decay_rate")):
             self.assertEqual(getattr(args, here), getattr(reference, there))
-        for key in ("wandb_entity", "stage2_norm", "token_dim",
+        for key in ("swanlab_workspace", "stage2_norm", "token_dim",
                     "transformer_layers", "transformer_heads", "token_dropout",
                     "stream_dropout", "use_stats_token"):
             self.assertEqual(getattr(args, key), getattr(reference, key))
@@ -226,19 +226,19 @@ class Stage2AblationTest(unittest.TestCase):
                 self.assertNotIn("val", result)
                 best = runner.load_checkpoint(runner.run_directory(args, "xyz_only", 0) / "best.pth")
                 self.assertEqual(best["best"], result["test"]["instance_accuracy"])
-                self.assertEqual(best["wandb_run_id"], self.wandb_runs[0].id)
-                self.wandb_runs[0].finish.assert_called_once()
-                log = self.wandb_runs[0].log.call_args.args[0]
+                self.assertEqual(best["swanlab_run_id"], self.swanlab_runs[0].id)
+                self.swanlab_runs[0].finish.assert_called_once()
+                log = self.swanlab_runs[0].log.call_args.args[0]
                 for key in ("loss/train", "loss/test", "learning_rate", "best/test_instance_accuracy",
                             "train/metric/instance_accuracy", "test/metric/class_accuracy",
                             "train/optimization/gradient_norm_mean", "train/confusion_matrix", "test/confusion_matrix"):
                     self.assertIn(key, log)
-                self.assertEqual(self.wandb_runs[0].log.call_args.kwargs["step"], 0)
+                self.assertEqual(self.swanlab_runs[0].log.call_args.kwargs["step"], 0)
                 args.mode = "evaluate"
                 args.data_root = None
                 evaluated = runner.run_experiment(args, "xyz_only", 0)
                 self.assertEqual(result["test"], evaluated)
-                self.assertEqual(self.wandb_init.call_count, 1)
+                self.assertEqual(self.swanlab_init.call_count, 1)
             self.assertEqual(runner.summarize(args.output_dir, 0)[0]["seed"], 0)
 
     def test_non_resume_overwrites_results_and_starts_a_new_run(self):
@@ -249,7 +249,7 @@ class Stage2AblationTest(unittest.TestCase):
             directory = runner.run_directory(args, "xyz_only", 0)
             with mock.patch.object(runner, "build_ablation_model", side_effect=small_model):
                 runner.run_experiment(args, "xyz_only", 0)
-                old_id = self.wandb_runs[-1].id
+                old_id = self.swanlab_runs[-1].id
                 (directory / "last.pth").write_bytes(b"old checkpoint must not be loaded")
                 (directory / "epoch_0999.json").write_text("old epoch")
                 (directory / "evaluation_test.json").write_text("old evaluation")
@@ -259,9 +259,9 @@ class Stage2AblationTest(unittest.TestCase):
             checkpoint = runner.load_checkpoint(directory / "last.pth")
             self.assertEqual(checkpoint["epoch"], 0)
             self.assertEqual(checkpoint["protocol"]["args"]["learning_rate"], args.learning_rate)
-            self.assertNotEqual(checkpoint["wandb_run_id"], old_id)
-            self.assertEqual(self.wandb_init.call_args.kwargs["run_id"], "")
-            self.assertEqual(self.wandb_runs[-1].log.call_args.kwargs["step"], 0)
+            self.assertNotEqual(checkpoint["swanlab_run_id"], old_id)
+            self.assertEqual(self.swanlab_init.call_args.kwargs["run_id"], "")
+            self.assertEqual(self.swanlab_runs[-1].log.call_args.kwargs["step"], 0)
             self.assertFalse((directory / "epoch_0999.json").exists())
             self.assertFalse((directory / "evaluation_test.json").exists())
             self.assertEqual((directory / "notes.txt").read_text(), "keep")
@@ -288,11 +288,11 @@ class Stage2AblationTest(unittest.TestCase):
             load.assert_not_called()
             self.assertEqual(result["best_epoch"], 1)
             self.assertEqual(result["test"]["instance_accuracy"], 0.9)
-            self.assertEqual(self.wandb_runs[0].log.call_count, 2)
-            for call in self.wandb_runs[0].log.call_args_list:
+            self.assertEqual(self.swanlab_runs[0].log.call_count, 2)
+            for call in self.swanlab_runs[0].log.call_args_list:
                 self.assertEqual(call.args[0]["checkpoint/last_saved"], 0)
                 self.assertEqual(call.args[0]["checkpoint/best_saved"], 0)
-            self.wandb_runs[0].finish.assert_called_once()
+            self.swanlab_runs[0].finish.assert_called_once()
 
     def test_torch_writer_failure_is_skipped_but_programming_error_propagates(self):
         for error in (OSError(28, "No space left on device"),
@@ -335,8 +335,8 @@ class Stage2AblationTest(unittest.TestCase):
                         self.assertEqual(actual["epoch"], 0)
                         self.assertEqual(actual["best"], reference["best"])
                         self.assertEqual(actual["scheduler"], reference["scheduler"])
-                        self.assertEqual(self.wandb_init.call_args.kwargs["run_id"], "")
-                        self.assertEqual(self.wandb_runs[-1].log.call_args.kwargs["step"], 0)
+                        self.assertEqual(self.swanlab_init.call_args.kwargs["run_id"], "")
+                        self.assertEqual(self.swanlab_runs[-1].log.call_args.kwargs["step"], 0)
                         for key in reference["model"]:
                             torch.testing.assert_close(actual["model"][key], reference["model"][key], rtol=0, atol=0)
 
@@ -355,8 +355,8 @@ class Stage2AblationTest(unittest.TestCase):
                 args.output_dir = str(root / "another_output")
                 resumed = runner.run_experiment(args, "xyz_only", 0)
                 self.assertEqual(resumed["test"], result["test"])
-                self.assertEqual(self.wandb_init.call_args.kwargs["run_id"], self.wandb_runs[0].id)
-                self.wandb_runs[-1].log.assert_not_called()  # Already reached total epochs.
+                self.assertEqual(self.swanlab_init.call_args.kwargs["run_id"], self.swanlab_runs[0].id)
+                self.swanlab_runs[-1].log.assert_not_called()  # Already reached total epochs.
                 args.resume = str(root / "missing.pth")
                 with self.assertRaises(FileNotFoundError):
                     runner.run_experiment(args, "xyz_only", 0)
@@ -364,9 +364,9 @@ class Stage2AblationTest(unittest.TestCase):
                 args.resume = str(path)
                 with self.assertRaises(Exception):
                     runner.run_experiment(args, "xyz_only", 0)
-                self.assertEqual(self.wandb_init.call_count, 2)
+                self.assertEqual(self.swanlab_init.call_count, 2)
 
-    def test_experiments_have_independent_wandb_runs(self):
+    def test_experiments_have_independent_swanlab_runs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_data(root / "data")
@@ -374,10 +374,10 @@ class Stage2AblationTest(unittest.TestCase):
             with mock.patch.object(runner, "build_ablation_model", side_effect=small_model):
                 for experiment in ("xyz_only", "only_direction"):
                     runner.run_experiment(args, experiment, 0)
-            names = [call.kwargs["name"] for call in self.wandb_init.call_args_list]
+            names = [call.kwargs["name"] for call in self.swanlab_init.call_args_list]
             self.assertEqual(len(set(names)), 2)
-            self.assertTrue(all(call.kwargs["run_id"] == "" for call in self.wandb_init.call_args_list))
-            for run in self.wandb_runs:
+            self.assertTrue(all(call.kwargs["run_id"] == "" for call in self.swanlab_init.call_args_list))
+            for run in self.swanlab_runs:
                 run.finish.assert_called_once()
 
     def test_interrupted_resume_matches_uninterrupted_and_rejects_different_protocol(self):
@@ -401,13 +401,13 @@ class Stage2AblationTest(unittest.TestCase):
                 with mock.patch.object(runner, "run_epoch", side_effect=interrupted):
                     with self.assertRaisesRegex(RuntimeError, "simulated"):
                         runner.run_experiment(args, "no_location", 0)
-                interrupted_id = self.wandb_runs[-1].id
-                self.wandb_runs[-1].finish.assert_called_once()
+                interrupted_id = self.swanlab_runs[-1].id
+                self.swanlab_runs[-1].finish.assert_called_once()
                 args.resume = "auto"
                 runner.run_experiment(args, "no_location", 0)
-                self.assertEqual(self.wandb_init.call_args.kwargs["run_id"], interrupted_id)
-                self.assertEqual(self.wandb_runs[-1].log.call_args.kwargs["step"], 1)
-                self.wandb_runs[-1].finish.assert_called_once()
+                self.assertEqual(self.swanlab_init.call_args.kwargs["run_id"], interrupted_id)
+                self.assertEqual(self.swanlab_runs[-1].log.call_args.kwargs["step"], 1)
+                self.swanlab_runs[-1].finish.assert_called_once()
                 state1 = runner.load_checkpoint(root / "complete/cls/constraint_aware/no_location/seed_0/last.pth")
                 state2 = runner.load_checkpoint(root / "resumed/cls/constraint_aware/no_location/seed_0/last.pth")
                 for key in state1["model"]:

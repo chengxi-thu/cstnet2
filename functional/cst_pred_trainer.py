@@ -30,10 +30,10 @@ from functional.stage1_metrics import (
 )
 from functional.checkpoint_io import safe_torch_save, safe_json_save
 from functional.console_io import ResilientTextStream, safe_print as print
-from functional.wandb_utils import (
-    flatten_wandb_summary_metrics,
-    wandb_confusion_matrix,
-    wandb_run_id,
+from functional.swanlab_utils import (
+    flatten_swanlab_summary_metrics,
+    swanlab_confusion_matrix,
+    swanlab_run_id,
 )
 
 
@@ -57,7 +57,7 @@ class CstPredTrainer(object):
         max_epoch,
         lr,
         save_str,
-        wandb_run=None,
+        swanlab_run=None,
         decay_rate=1e-4,
         loss_weights=None,
         use_extra_features=False,
@@ -82,7 +82,7 @@ class CstPredTrainer(object):
         self.log_savepth = log_savepth
         self.max_epoch = int(max_epoch)
         self.save_str = save_str
-        self.wandb_run = wandb_run
+        self.swanlab_run = swanlab_run
         self.decay_rate = decay_rate
         self.loss_weights = {} if loss_weights is None else dict(loss_weights)
         self.use_extra_features = bool(use_extra_features)
@@ -339,33 +339,33 @@ class CstPredTrainer(object):
             print(Fore.BLUE + f"training time: {train_time:.4f} sec")
             improved = self._update_best_metrics(global_epoch, train_metrics)
 
-            wandb_payload = {}
-            wandb_payload.update(
-                flatten_wandb_summary_metrics("loss", train_loss)
+            swanlab_payload = {}
+            swanlab_payload.update(
+                flatten_swanlab_summary_metrics("loss", train_loss)
             )
             for key, value in train_metrics.items():
                 separate_section = key.split("/", 1)[0] in ATTRIBUTE_METRIC_SECTIONS
                 if separate_section and key.endswith("_valid_points"):
                     continue
-                wandb_payload.update(flatten_wandb_summary_metrics(
+                swanlab_payload.update(flatten_swanlab_summary_metrics(
                     key if separate_section else f"metric/{key}", value,
                 ))
 
             # The checkpoint contains the LR that will be used by the next epoch.
             self.scheduler.step()
             self.save(global_epoch, improved)
-            if self.wandb_run is not None:
+            if self.swanlab_run is not None:
                 try:
-                    wandb_payload["confusion_matrix/primitive"] = (
-                        wandb_confusion_matrix(
+                    swanlab_payload["confusion_matrix/primitive"] = (
+                        swanlab_confusion_matrix(
                             train_metrics["pmt_confusion_matrix"],
                             PRIMITIVE_CLASS_NAMES,
                             title="Train Primitive Confusion Matrix",
                         )
                     )
-                    self.wandb_run.log(wandb_payload, step=global_epoch)
+                    self.swanlab_run.log(swanlab_payload, step=global_epoch)
                 except OSError as error:
-                    print(f"WARNING: WandB logging I/O failed at epoch {global_epoch}: "
+                    print(f"WARNING: SwanLab logging I/O failed at epoch {global_epoch}: "
                           f"{error}; continuing training and retrying logging next epoch")
 
     def _update_best_metrics(self, epoch, train_metrics):
@@ -423,7 +423,7 @@ class CstPredTrainer(object):
             "best_metrics_source": "train",
             "args": self.checkpoint_args,
             "checkpoint_config": checkpoint_config,
-            "wandb_run_id": wandb_run_id(self.wandb_run),
+            "swanlab_run_id": swanlab_run_id(self.swanlab_run),
             "loss_schedule": {
                 "global_epoch": int(epoch),
                 "next_global_epoch": int(epoch) + 1,

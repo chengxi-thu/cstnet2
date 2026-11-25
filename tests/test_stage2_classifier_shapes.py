@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 
 
 class Stage2ClassifierShapeTest(unittest.TestCase):
-    def test_classification_full_checkpoint_restores_epoch_and_wandb_id(self):
+    def test_classification_full_checkpoint_restores_epoch_and_swanlab_id(self):
         import train_cls
 
         model_config = {
@@ -36,7 +36,7 @@ class Stage2ClassifierShapeTest(unittest.TestCase):
             "scheduler": source_scheduler.state_dict(),
             "best_acc": 0.75,
             "model_config": model_config,
-            "wandb_run_id": "classification-run-id",
+            "swanlab_run_id": "classification-run-id",
         }
         restored_model = torch.nn.Linear(3, 2)
         restored_optimizer = torch.optim.Adam(
@@ -103,12 +103,12 @@ class Stage2ClassifierShapeTest(unittest.TestCase):
         self.assertFalse(defaults.resume)
         self.assertFalse(hasattr(defaults, "dgcnn_k"))
         self.assertFalse(hasattr(defaults, "pointmamba_tokens"))
-        self.assertFalse(hasattr(defaults, "use_wandb"))
+        self.assertFalse(hasattr(defaults, "use_swanlab"))
         self.assertFalse(hasattr(defaults, "constraint_source"))
         self.assertFalse(hasattr(defaults, "stage1_ckpt"))
         self.assertFalse(hasattr(defaults, "stage1_model"))
         self.assertFalse(hasattr(defaults, "stage2_variant"))
-        self.assertEqual(defaults.wandb_project, "cstnet2")
+        self.assertEqual(defaults.swanlab_project, "cstnet2-s2")
         self.assertEqual(defaults.test_ratio, 0.2)
         self.assertEqual(defaults.split_seed, 42)
 

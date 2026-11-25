@@ -363,12 +363,12 @@ class Stage1TrainingStabilityTest(unittest.TestCase):
             self.assertNotIn("raw/inst", loss)
             self.assertNotIn("cluster_ari_real", metrics)
 
-    def test_stage1_checkpoint_persists_wandb_run_id(self):
+    def test_stage1_checkpoint_persists_swanlab_run_id(self):
         with tempfile.TemporaryDirectory(dir=".") as root:
             trainer = make_trainer(root, "semantic")
-            trainer.wandb_run = SimpleNamespace(id="stage1-run-id")
+            trainer.swanlab_run = SimpleNamespace(id="stage1-run-id")
             self.assertEqual(
-                trainer._checkpoint_payload(0)["wandb_run_id"],
+                trainer._checkpoint_payload(0)["swanlab_run_id"],
                 "stage1-run-id",
             )
 
@@ -385,11 +385,11 @@ class Stage1TrainingStabilityTest(unittest.TestCase):
             self.assertEqual(summary["location_mean_distance_error"], 0)
             direct.assert_called_once()
 
-    def test_stage1_wandb_metrics_do_not_use_redundant_train_prefix(self):
+    def test_stage1_swanlab_metrics_do_not_use_redundant_train_prefix(self):
         with tempfile.TemporaryDirectory(dir=".") as root:
             trainer = make_trainer(root, "semantic")
             run = SimpleNamespace(id="stage1-run-id", log=mock.Mock())
-            trainer.wandb_run = run
+            trainer.swanlab_run = run
             trainer.process_epoch = mock.Mock(return_value=(
                 {"loss_all": 1.0, "raw/pmt": 0.5},
                 {
@@ -413,7 +413,7 @@ class Stage1TrainingStabilityTest(unittest.TestCase):
             trainer.save = mock.Mock(return_value={"last": True})
 
             with mock.patch(
-                "functional.cst_pred_trainer.wandb_confusion_matrix",
+                "functional.cst_pred_trainer.swanlab_confusion_matrix",
                 return_value="confusion-chart",
             ):
                 trainer.start()

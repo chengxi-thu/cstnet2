@@ -86,7 +86,7 @@ class HuggingFaceDatasetTest(unittest.TestCase):
             download = Mock(return_value=str(root))
             run = Mock(id="test")
             with patch.dict("sys.modules", {"huggingface_hub": SimpleNamespace(snapshot_download=download)}), \
-                    patch("train_cst_pred.initialize_wandb_run", return_value=run), \
+                    patch("train_cst_pred.initialize_swanlab_run", return_value=run), \
                     patch("train_cst_pred.CstPredTrainer") as trainer:
                 train_cst_pred.main(args)
             kwargs = trainer.call_args.kwargs
@@ -116,7 +116,7 @@ class HuggingFaceDatasetTest(unittest.TestCase):
                     download = Mock(return_value=str(root))
                     run = Mock(id="baseline-test")
                     with patch.dict("sys.modules", {"huggingface_hub": SimpleNamespace(snapshot_download=download)}), \
-                            patch.object(baseline, "initialize_wandb_run", return_value=run), \
+                            patch.object(baseline, "initialize_swanlab_run", return_value=run), \
                             patch.object(baseline, "Stage1DirectTrainer") as trainer:
                         baseline.main(args)
                     kwargs = trainer.call_args.kwargs

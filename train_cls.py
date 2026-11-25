@@ -13,14 +13,15 @@ from tqdm import tqdm
 from colorama import init
 
 from data_utils.classification_dataset import Stage2ClassificationDataset
-from functional.constraints import ground_truth_constraints_to_tensor
+from functional.constraints import constraints_to_tensor, ground_truth_constraints_to_tensor
 from functional.checkpoint_io import safe_torch_save
 from functional.cuda_runtime import preload_cuda_nvrtc
-from functional.wandb_utils import (
-    flatten_wandb_summary_metrics,
-    initialize_wandb_run,
-    wandb_confusion_matrix,
-    wandb_run_id,
+from functional.swanlab_utils import (
+    add_swanlab_arguments,
+    flatten_swanlab_summary_metrics,
+    initialize_swanlab_run,
+    swanlab_confusion_matrix,
+    swanlab_run_id,
 )
 from networks.classification_models import (
     CLASSIFICATION_MODEL_NAMES,
@@ -34,37 +35,14 @@ from networks.cstnet import add_cstnet_arguments, load_cstnet_weights
 from networks.utils import all_metric_cls
 
 
-def parse_args(argv: list[str] | None = None):
-    parser = argparse.ArgumentParser("Stage 2 classification training")
+def add_classification_training_arguments(parser):
     parser.add_argument("--bs", "--batch_size", dest="bs", type=int, default=20)
     parser.add_argument("--epoch", type=int, default=200)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--decay_rate", type=float, default=1e-4)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--n_points", "--n_point", dest="n_points", type=int, default=2048)
-    parser.add_argument("--is_sample", action="store_true", default=False)
-    parser.add_argument("--local", action="store_true", default=False)
-    parser.add_argument("--data_root", type=str, default=None,
-                        help="TXT/HDF5 dataset root for models other than CSTNet")
-    parser.add_argument("--data_root_cstnet", type=str, default=None,
-                        help="CSTNet classification dataset root with 9-column legacy TXT files")
-    parser.add_argument("--data_format", choices=("auto", "txt", "h5"), default="auto",
-                        help="CSTNet reads 9-column legacy TXT with binary nearby labels; other models support TXT/HDF5")
-    parser.add_argument("--root_sever", type=str)
-    parser.add_argument("--root_local", type=str)
 
-    parser.add_argument(
-        "--model",
-        choices=CLASSIFICATION_MODEL_NAMES,
-        default=DEFAULT_CLASSIFICATION_MODEL,
-        help="Stage 2 classification architecture",
-    )
-    parser.add_argument(
-        "--baseline_use_constraints",
-        action="store_true",
-        default=False,
-        help="Use the 12D per-point constraint as baseline point features",
-    )
     parser.add_argument("--stage2_norm", choices=["ln", "bn"], default="ln")
     parser.add_argument("--label_smoothing", type=float, default=0.05)
     parser.add_argument("--aux_loss_weight", type=float, default=0.1)
@@ -75,22 +53,7 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--stream_dropout", type=float, default=0.1)
     parser.add_argument("--use_stats_token", action="store_true", default=False)
 
-    parser.add_argument("--save_name", type=str, default="stage2_cls_cstpred")
-    parser.add_argument(
-        "--test_ratio",
-        type=float,
-        default=0.2,
-        help="Test fraction used only when first creating split_file.json",
-    )
-    parser.add_argument(
-        "--split_seed",
-        type=int,
-        default=42,
-        help="Random seed used only when first creating split_file.json",
-    )
-    parser.add_argument("--wandb_project", type=str, default="cstnet2-s2")
-    parser.add_argument("--wandb_entity", type=str, default="")
-    parser.add_argument("--wandb_run_name", type=str, default="")
+    add_swanlab_arguments(parser, default_project="cstnet2-s2")
     parser.add_argument(
         "--resume",
         action="store_true",
@@ -98,6 +61,38 @@ def parse_args(argv: list[str] | None = None):
         help="Load the selected model's existing weight file before training",
     )
     add_cstnet_arguments(parser)
+
+
+def parse_args(argv: list[str] | None = None):
+    parser = argparse.ArgumentParser("Stage 2 classification training")
+    parser.add_argument(
+        "--baseline_use_constraints",
+        action="store_true",
+        default=False,
+        help="Use the 12D per-point constraint as baseline point features",
+    )
+    parser.add_argument(
+        "--model",
+        choices=CLASSIFICATION_MODEL_NAMES,
+        default=DEFAULT_CLASSIFICATION_MODEL,
+        help="Stage 2 classification architecture",
+    )
+    add_classification_training_arguments(parser)
+    parser.add_argument("--is_sample", action="store_true", default=False)
+    parser.add_argument("--local", action="store_true", default=False)
+    parser.add_argument("--data_root", type=str, default=None,
+                        help="TXT/HDF5 dataset root for models other than CSTNet")
+    parser.add_argument("--data_root_cstnet", type=str, default=None,
+                        help="CSTNet classification dataset root with 9-column legacy TXT files")
+    parser.add_argument("--data_format", choices=("auto", "txt", "h5"), default="auto",
+                        help="CSTNet reads 9-column legacy TXT with binary nearby labels; other models support TXT/HDF5")
+    parser.add_argument("--root_sever", type=str)
+    parser.add_argument("--root_local", type=str)
+    parser.add_argument("--save_name", type=str, default="stage2_cls_cstpred")
+    parser.add_argument("--test_ratio", type=float, default=0.2,
+                        help="Test fraction used only when first creating split_file.json")
+    parser.add_argument("--split_seed", type=int, default=42,
+                        help="Random seed used only when first creating split_file.json")
     args = parser.parse_args(argv)
     fallback_root = args.root_local if args.local else args.root_sever
     if args.data_root is None:
@@ -161,17 +156,26 @@ def classification_loss(model, xyz, constraints, target, args, model_config):
     return output["log_probs"], loss
 
 
-def evaluate(model, loader, device, use_constraints):
+def classification_batch(data, device, use_constraints, constraint_extractor):
+    xyz = data[0].float().to(device, non_blocking=True)
+    target = data[1].long().to(device, non_blocking=True)
+    constraints = None
+    if constraint_extractor is not None:
+        constraints = constraints_to_tensor(constraint_extractor(xyz))
+    elif use_constraints:
+        constraints = constraints_from_dataset_batch(data, device)
+    return xyz, target, constraints
+
+
+def evaluate(model, loader, device, use_constraints, constraint_extractor=None):
     model.eval()
     all_preds, all_labels = [], []
     total_loss = 0.0
     with torch.no_grad():
         for data in tqdm(loader, total=len(loader), desc="eval"):
-            xyz = data[0].float().to(device, non_blocking=True)
-            target = data[1].long().to(device, non_blocking=True)
-            constraints = None
-            if use_constraints:
-                constraints = constraints_from_dataset_batch(data, device)
+            xyz, target, constraints = classification_batch(
+                data, device, use_constraints, constraint_extractor
+            )
             pred = model(xyz, constraints)
             total_loss += F.nll_loss(pred, target).item()
             all_preds.append(pred.cpu().numpy())
@@ -237,14 +241,12 @@ def restore_classification_training_state(
     return (
         int(checkpoint["epoch"]) + 1,
         float(checkpoint["best_acc"]),
-        str(checkpoint.get("wandb_run_id", "") or "").strip(),
+        str(checkpoint.get("swanlab_run_id", "") or "").strip(),
         False,
     )
 
 
 def main(args):
-    os.makedirs("model_trained", exist_ok=True)
-
     data_root = args.data_root_cstnet if args.model == "cstnet" else args.data_root
     train_loader, test_loader = Stage2ClassificationDataset.create_dataloaders(
         root=data_root,
@@ -257,6 +259,15 @@ def main(args):
         storage_format=args.data_format,
         cstnet_inputs=args.model == "cstnet",
     )
+    save_stem = args.save_name
+    if save_stem in {"stage2_cls", "stage2_cls_cstpred"}:
+        save_stem += "_" + classification_run_name(classification_model_config(args))
+    train_classification(args, train_loader, test_loader, data_root, save_stem)
+
+
+def train_classification(args, train_loader, test_loader, data_root, save_stem,
+                         output_dir="model_trained", constraint_extractor=None):
+    os.makedirs(output_dir, exist_ok=True)
     n_classes = train_loader.dataset.n_classes()
     class_names = [f"class_{index}" for index in range(n_classes)]
     for name, index in train_loader.dataset.classes.items():
@@ -275,10 +286,7 @@ def main(args):
     model = build_classification_model(n_classes, model_config).to(device)
     if args.cstnet_weights:
         load_cstnet_weights(model, args.cstnet_weights)
-    save_stem = args.save_name
-    if args.save_name == "stage2_cls" or args.save_name == "stage2_cls_cstpred":
-        save_stem = f"{args.save_name}_{classification_run_name(model_config)}"
-    save_path = os.path.join("model_trained", f"{save_stem}.pth")
+    save_path = os.path.join(output_dir, f"{save_stem}.pth")
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     print(f"classification model: {model_config}; parameters={parameter_count:,}")
     print(f"constraints required by model: {use_constraints}")
@@ -300,10 +308,11 @@ def main(args):
 
     start_epoch = 0
     best_acc = 0.0
-    wandb_resume_id = ""
+    test_acc = None
+    swanlab_resume_id = ""
     if args.resume:
         checkpoint = load_classification_checkpoint(save_path, map_location=device)
-        start_epoch, best_acc, wandb_resume_id, legacy_checkpoint = (
+        start_epoch, best_acc, swanlab_resume_id, legacy_checkpoint = (
             restore_classification_training_state(
                 checkpoint, model, optimizer, scheduler, model_config
             )
@@ -311,29 +320,30 @@ def main(args):
         if legacy_checkpoint:
             print(
                 "WARNING: loaded a legacy model-only classification checkpoint; "
-                "optimizer/epoch/WandB state cannot be resumed, so training and "
-                "WandB logging restart from epoch 1"
+                "optimizer/epoch/SwanLab state cannot be resumed, so training and "
+                "SwanLab logging restart from epoch 1"
             )
         else:
+            test_acc = checkpoint.get("test_acc")
             print(
                 f"checkpoint: resumed {save_path}; next_epoch={start_epoch + 1}, "
-                f"best_acc={best_acc:.4f}, wandb_run_id={wandb_resume_id or '<missing>'}"
+                f"best_acc={best_acc:.4f}, swanlab_run_id={swanlab_resume_id or '<missing>'}"
             )
-            if not wandb_resume_id:
+            if not swanlab_resume_id:
                 print(
-                    "WARNING: resume checkpoint has no wandb_run_id; "
-                    "a new WandB Run will be created"
+                    "WARNING: resume checkpoint has no swanlab_run_id; "
+                    "a new SwanLab Run will be created"
                 )
     elif args.cstnet_weights:
         print(f"Initialized CSTNet classification from {args.cstnet_weights}")
     else:
         print(f"checkpoint: none provided; starting a new training run ({save_path})")
 
-    wandb_run = initialize_wandb_run(
-        project=args.wandb_project,
-        entity=args.wandb_entity,
-        name=args.wandb_run_name or save_stem,
-        run_id=wandb_resume_id,
+    swanlab_run = initialize_swanlab_run(
+        project=args.swanlab_project,
+        workspace=args.swanlab_workspace,
+        name=args.swanlab_run_name or save_stem,
+        run_id=swanlab_resume_id,
         config={
             **vars(args),
             "model_config": model_config,
@@ -341,7 +351,7 @@ def main(args):
             "num_classes": n_classes,
             "class_names": class_names,
             "selected_data_root": data_root,
-            "constraint_storage": "point_file_fields",
+            "constraint_storage": "frozen_stage1" if constraint_extractor is not None else "point_file_fields",
             "device": str(device),
         },
     )
@@ -358,11 +368,9 @@ def main(args):
             total=len(train_loader),
             desc=f"train {epoch + 1}/{args.epoch}",
         ):
-            xyz = data[0].float().to(device, non_blocking=True)
-            target = data[1].long().to(device, non_blocking=True)
-            constraints = None
-            if use_constraints:
-                constraints = constraints_from_dataset_batch(data, device)
+            xyz, target, constraints = classification_batch(
+                data, device, use_constraints, constraint_extractor
+            )
 
             optimizer.zero_grad(set_to_none=True)
             pred, loss = classification_loss(
@@ -393,12 +401,14 @@ def main(args):
             test_loader,
             device,
             use_constraints,
+            constraint_extractor,
         )
         train_loss = running_loss / max(len(train_loader), 1)
 
-        improved = test_metrics["instance_accuracy"] >= best_acc
+        test_acc = test_metrics["instance_accuracy"]
+        improved = test_acc >= best_acc
         if improved:
-            best_acc = test_metrics["instance_accuracy"]
+            best_acc = test_acc
         scheduler.step()
         checkpoint_payload = {
             "epoch": int(epoch),
@@ -406,18 +416,19 @@ def main(args):
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict(),
             "best_acc": float(best_acc),
+            "test_acc": test_acc,
             "args": vars(args),
             "model_config": model_config,
-            "wandb_run_id": wandb_run_id(wandb_run),
+            "swanlab_run_id": swanlab_run_id(swanlab_run),
         }
         checkpoint_status = save_classification_checkpoints(
             checkpoint_payload,
             save_path,
-            os.path.join("model_trained", f"{save_stem}_best.pth"),
+            os.path.join(output_dir, f"{save_stem}_best.pth"),
             save_best=improved,
         )
 
-        wandb_payload = {
+        swanlab_payload = {
             "epoch": epoch + 1,
             "learning_rate": epoch_learning_rate,
             "loss/train": train_loss,
@@ -430,23 +441,23 @@ def main(args):
             ),
             "train/optimization/gradient_norm_max": gradient_norm_max,
         }
-        wandb_payload.update(
-            flatten_wandb_summary_metrics("train/metric", train_metrics)
+        swanlab_payload.update(
+            flatten_swanlab_summary_metrics("train/metric", train_metrics)
         )
-        wandb_payload.update(
-            flatten_wandb_summary_metrics("test/metric", test_metrics)
+        swanlab_payload.update(
+            flatten_swanlab_summary_metrics("test/metric", test_metrics)
         )
-        wandb_payload["train/confusion_matrix"] = wandb_confusion_matrix(
+        swanlab_payload["train/confusion_matrix"] = swanlab_confusion_matrix(
             train_metrics["confusion_matrix"],
             class_names,
             title="Train Classification Confusion Matrix",
         )
-        wandb_payload["test/confusion_matrix"] = wandb_confusion_matrix(
+        swanlab_payload["test/confusion_matrix"] = swanlab_confusion_matrix(
             test_metrics["confusion_matrix"],
             class_names,
             title="Test Classification Confusion Matrix",
         )
-        wandb_run.log(wandb_payload, step=epoch)
+        swanlab_run.log(swanlab_payload, step=epoch)
 
         print(
             f"epoch {epoch + 1}/{args.epoch} "
@@ -457,7 +468,8 @@ def main(args):
             f"best={best_acc:.4f}"
         )
 
-    wandb_run.finish()
+    swanlab_run.finish()
+    return {"test_accuracy": test_acc, "best_test_accuracy": best_acc}
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ class TrainStage1EntryTest(unittest.TestCase):
             trainer = Mock()
             with (
                 patch(
-                    "train_cst_pred.initialize_wandb_run",
+                    "train_cst_pred.initialize_swanlab_run",
                     return_value=run,
                 ),
                 patch(
@@ -119,7 +119,7 @@ class TrainStage1EntryTest(unittest.TestCase):
             run = Mock(id="geometry-run")
             trainer = Mock()
             with (
-                patch("train_cst_pred.initialize_wandb_run", return_value=run),
+                patch("train_cst_pred.initialize_swanlab_run", return_value=run),
                 patch(
                     "train_cst_pred.CstPredTrainer",
                     return_value=trainer,

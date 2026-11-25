@@ -1,4 +1,4 @@
-"""Compare two trusted Stage 1 checkpoints without data, training, or W&B."""
+"""Compare two trusted Stage 1 checkpoints without data, training, or SwanLab."""
 
 import argparse
 import json

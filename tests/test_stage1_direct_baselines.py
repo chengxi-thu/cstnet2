@@ -154,10 +154,10 @@ class Stage1DirectBaselineTest(unittest.TestCase):
                 device=torch.device("cpu"),
                 epochs=1,
                 checkpoint_args=config,
-                wandb_run=run,
+                swanlab_run=run,
             )
             with patch(
-                "functional.stage1_direct_trainer.wandb_confusion_matrix",
+                "functional.stage1_direct_trainer.swanlab_confusion_matrix",
                 return_value="confusion-panel",
             ) as confusion:
                 summary = trainer.fit()
@@ -192,7 +192,7 @@ class Stage1DirectBaselineTest(unittest.TestCase):
             self.assertEqual(checkpoint["task"], DIRECT_CHECKPOINT_TASK)
             self.assertNotIn("embedding", checkpoint["model_config"])
             self.assertNotIn("loss_weights", checkpoint)
-            self.assertEqual(checkpoint["wandb_run_id"], "direct-test-run")
+            self.assertEqual(checkpoint["swanlab_run_id"], "direct-test-run")
 
             resumed_model = build_stage1_direct_baseline(config)
             resumed_optimizer = torch.optim.Adam(resumed_model.parameters(), lr=1e-3)
@@ -206,7 +206,7 @@ class Stage1DirectBaselineTest(unittest.TestCase):
                 device=torch.device("cpu"),
                 epochs=2,
                 checkpoint_args=config,
-                wandb_run=None,
+                swanlab_run=None,
             )
             resumed.load_checkpoint(os.path.join(temporary, "last.pth"))
             self.assertEqual(resumed.start_epoch, 1)

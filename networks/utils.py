@@ -311,7 +311,7 @@ def all_metric_cls(all_preds: list, all_labels: list):
     Compute aggregate, per-class, histogram, and confusion-matrix metrics.
     :param all_preds: [item0, item1, ...], item: [bs, n_classes]
     :param all_labels: [item0, item1, ...], item: [bs, ], Only int tensor in supported
-    :return: a WandB-ready nested metric dictionary
+    :return: a SwanLab-ready nested metric dictionary
     """
     all_preds = np.vstack(all_preds)  # [n_samples, n_classes]
     all_labels = np.hstack(all_labels)  # [n_samples]

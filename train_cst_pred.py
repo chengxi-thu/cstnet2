@@ -18,9 +18,10 @@ from functional.stage1_checkpoint_policy import (
     CHECKPOINT_POLICIES,
     resolve_stage1_checkpoint,
 )
-from functional.wandb_utils import (
-    initialize_wandb_run,
-    read_wandb_run_id_from_checkpoint,
+from functional.swanlab_utils import (
+    add_swanlab_arguments,
+    initialize_swanlab_run,
+    read_swanlab_run_id_from_checkpoint,
 )
 from networks.cst_pred_wrapper import CstPredWrapper
 from colorama import init, Fore, Back
@@ -55,9 +56,7 @@ def parse_args(argv=None):
         choices=['auto', 'txt', 'h5'],
         help='Stage 1 storage format; auto prefers HDF5 when shards are present',
     )
-    parser.add_argument('--wandb_project', type=str, default='cstnet2-s1-abcmf30')
-    parser.add_argument('--wandb_entity', type=str, default='')
-    parser.add_argument('--wandb_run_name', type=str, default='')
+    add_swanlab_arguments(parser, default_project="cstnet2-s1-abcmf30")
     parser.add_argument('--train_phase', default='semantic', choices=['semantic', 'geometry', 'joint'])
     parser.add_argument('--use_extra_features', action='store_true', default=False)
     parser.add_argument('--feature_k', default=16, type=int)
@@ -154,12 +153,12 @@ def main(args):
         if checkpoint_resolution.action == 'resume'
         else None
     )
-    wandb_resume_id = read_wandb_run_id_from_checkpoint(resume_source)
-    if resume_source and not wandb_resume_id:
+    swanlab_resume_id = read_swanlab_run_id_from_checkpoint(resume_source)
+    if resume_source and not swanlab_resume_id:
         print(
             Fore.YELLOW
-            + 'WARNING: automatically selected resume checkpoint has no wandb_run_id; '
-            'a new WandB Run will be created'
+            + 'WARNING: automatically selected resume checkpoint has no swanlab_run_id; '
+            'a new SwanLab Run will be created'
         )
     checkpoint_args = {
         **vars(args),
@@ -169,11 +168,11 @@ def main(args):
         'loc_input': stage1_model.loc_input,
         'resolved_data_root': resolved_data_root,
     }
-    run = initialize_wandb_run(
-        project=args.wandb_project,
-        entity=args.wandb_entity,
-        name=args.wandb_run_name if args.wandb_run_name else save_str,
-        run_id=wandb_resume_id,
+    run = initialize_swanlab_run(
+        project=args.swanlab_project,
+        workspace=args.swanlab_workspace,
+        name=args.swanlab_run_name if args.swanlab_run_name else save_str,
+        run_id=swanlab_resume_id,
         config={
             **checkpoint_args,
             'parameter_count': parameter_count,
@@ -198,7 +197,7 @@ def main(args):
         lr = args.lr,
         decay_rate=args.decay_rate,
         save_str=save_str,
-        wandb_run=run,
+        swanlab_run=run,
         loss_weights=loss_weights,
         use_extra_features=use_extra_features,
         feature_k=args.feature_k,
@@ -219,7 +218,7 @@ def main(args):
         try:
             run.finish()
         except OSError as error:
-            safe_print(f"WARNING: WandB finish I/O failed: {error}")
+            safe_print(f"WARNING: SwanLab finish I/O failed: {error}")
 
 
 if __name__ == '__main__':

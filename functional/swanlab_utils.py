@@ -1,8 +1,9 @@
-"""Required Weights & Biases setup shared by all training entry points."""
+"""Required SwanLab setup shared by all training entry points."""
 
 from __future__ import annotations
 
 import os
+from argparse import ArgumentParser
 from collections.abc import Mapping, Sequence
 from numbers import Real
 from pathlib import Path
@@ -13,9 +14,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
 INVALID_API_KEYS = {
     "",
-    "your_wandb_api_key_here",
-    "replace_with_your_wandb_api_key",
+    "your_swanlab_api_key_here",
+    "replace_with_your_swanlab_api_key",
 }
+
+
+def add_swanlab_arguments(parser: ArgumentParser, *, default_project: str) -> None:
+    parser.add_argument("--swanlab_project", "--wandb_project", default=default_project)
+    parser.add_argument("--swanlab_workspace", "--wandb_entity", default="",
+                        help="SwanLab workspace (defaults to your personal workspace)")
+    parser.add_argument("--swanlab_run_name", "--wandb_run_name", default="",
+                        help="Override the generated SwanLab experiment name")
 
 
 def read_env_file(path: str | os.PathLike[str] = DEFAULT_ENV_PATH) -> dict[str, str]:
@@ -23,8 +32,8 @@ def read_env_file(path: str | os.PathLike[str] = DEFAULT_ENV_PATH) -> dict[str, 
     env_path = Path(path).expanduser().resolve()
     if not env_path.is_file():
         raise FileNotFoundError(
-            f"WandB configuration file was not found: {env_path}. "
-            "Copy .env.example to .env and set WANDB_API_KEY."
+            f"SwanLab configuration file was not found: {env_path}. "
+            "Create the file and set SWANLAB_API_KEY."
         )
 
     values: dict[str, str] = {}
@@ -50,55 +59,55 @@ def read_env_file(path: str | os.PathLike[str] = DEFAULT_ENV_PATH) -> dict[str, 
     return values
 
 
-def require_wandb_api_key(
+def require_swanlab_api_key(
     path: str | os.PathLike[str] = DEFAULT_ENV_PATH,
 ) -> str:
-    """Load WANDB_API_KEY from the project .env and expose it to WandB."""
+    """Read the SwanLab credential from the project .env."""
     values = read_env_file(path)
-    api_key = values.get("WANDB_API_KEY", "").strip()
+    api_key = values.get("SWANLAB_API_KEY", "").strip()
     if api_key.lower() in INVALID_API_KEYS:
         raise ValueError(
-            f"WANDB_API_KEY is missing or still a placeholder in {Path(path).resolve()}"
+            f"SWANLAB_API_KEY is missing or still a placeholder in {Path(path).resolve()}"
         )
-    os.environ["WANDB_API_KEY"] = api_key
     return api_key
 
 
-def initialize_wandb_run(
+def initialize_swanlab_run(
     *,
     project: str,
     name: str,
     config: Mapping[str, Any],
-    entity: str = "",
+    workspace: str = "",
     run_id: str = "",
     env_path: str | os.PathLike[str] = DEFAULT_ENV_PATH,
 ):
-    """Authenticate from .env and create the mandatory online WandB run."""
-    api_key = require_wandb_api_key(env_path)
+    """Authenticate from .env and create the mandatory online SwanLab run."""
+    api_key = require_swanlab_api_key(env_path)
     try:
-        import wandb
+        import swanlab
     except ImportError as exc:
         raise RuntimeError(
-            "wandb is required for training; install it with `python -m pip install wandb`"
+            "swanlab is required for training; install it with `python -m pip install swanlab`"
         ) from exc
 
-    wandb.login(key=api_key, relogin=True)
+    swanlab.login(api_key=api_key, relogin=True, save=False)
     init_kwargs = dict(
         project=project,
-        entity=entity or None,
-        name=name,
+        workspace=workspace or None,
+        experiment_name=name,
         config=dict(config),
         mode="online",
+        on_online_error="raise",
     )
     if run_id:
         init_kwargs.update(id=str(run_id), resume="must")
-    return wandb.init(**init_kwargs)
+    return swanlab.init(**init_kwargs)
 
 
-def read_wandb_run_id_from_checkpoint(
+def read_swanlab_run_id_from_checkpoint(
     path: str | os.PathLike[str] | None,
 ) -> str:
-    """Read a persisted WandB Run ID without constructing a training model."""
+    """Read a persisted SwanLab Run ID without constructing a training model."""
     if not path:
         return ""
     checkpoint_path = Path(path).expanduser()
@@ -116,15 +125,15 @@ def read_wandb_run_id_from_checkpoint(
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
     if not isinstance(checkpoint, Mapping):
         return ""
-    return str(checkpoint.get("wandb_run_id", "") or "").strip()
+    return str(checkpoint.get("swanlab_run_id", "") or "").strip()
 
 
-def wandb_run_id(run: Any) -> str:
+def swanlab_run_id(run: Any) -> str:
     """Return a live run's stable ID, or an empty string for test doubles."""
     return str(getattr(run, "id", "") or "").strip()
 
 
-def flatten_wandb_metrics(prefix: str, data: Any) -> dict[str, float]:
+def flatten_swanlab_metrics(prefix: str, data: Any) -> dict[str, float]:
     """Flatten nested metric dicts, per-class vectors, and matrices to scalars."""
     output: dict[str, float] = {}
 
@@ -153,7 +162,7 @@ def flatten_wandb_metrics(prefix: str, data: Any) -> dict[str, float]:
     return output
 
 
-def flatten_wandb_summary_metrics(prefix: str, data: Any) -> dict[str, float]:
+def flatten_swanlab_summary_metrics(prefix: str, data: Any) -> dict[str, float]:
     """Flatten scalar epoch summaries while skipping vectors and matrices."""
     output: dict[str, float] = {}
 
@@ -176,19 +185,19 @@ def flatten_wandb_summary_metrics(prefix: str, data: Any) -> dict[str, float]:
     return output
 
 
-def wandb_confusion_matrix(
+def swanlab_confusion_matrix(
     confusion_matrix: Any,
     class_names: Sequence[str],
     *,
     title: str,
 ):
-    """Build one native WandB confusion-matrix panel from aggregated counts."""
+    """Build one native SwanLab confusion-matrix panel from aggregated counts."""
     try:
-        import wandb
+        import swanlab
     except ImportError as exc:
         raise RuntimeError(
-            "wandb is required for confusion-matrix logging; "
-            "install it with `python -m pip install wandb`"
+            "swanlab is required for confusion-matrix logging; "
+            "install it with `python -m pip install swanlab`"
         ) from exc
 
     if hasattr(confusion_matrix, "detach"):
@@ -222,33 +231,30 @@ def wandb_confusion_matrix(
                 raise ValueError("confusion_matrix values must be non-negative")
             if count.is_integer():
                 count = int(count)
-            data.append(
-                [names[actual_index], names[predicted_index], count]
-            )
+            data.append([predicted_index, actual_index, count])
 
-    columns = ["Actual", "Predicted", "nPredictions"]
-    table = wandb.Table(columns=columns, data=data)
-    fields = {
-        "Actual": "Actual",
-        "Predicted": "Predicted",
-        "nPredictions": "nPredictions",
-    }
-    return wandb.plot_table(
-        "wandb/confusion_matrix/v1",
-        table,
-        fields,
-        {"title": str(title)},
+    chart = swanlab.echarts.HeatMap()
+    chart.add_xaxis(names)
+    chart.add_yaxis("Count", names, data)
+    chart.set_global_opts(
+        title_opts={"text": title},
+        legend_opts={"show": False},
+        xaxis_opts={"name": "Predicted", "type": "category"},
+        yaxis_opts={"name": "Actual", "type": "category", "inverse": True},
+        visualmap_opts={"min": 0, "max": max(1, max(row[2] for row in data))},
     )
+    return chart
 
 
 __all__ = [
     "DEFAULT_ENV_PATH",
-    "flatten_wandb_metrics",
-    "flatten_wandb_summary_metrics",
-    "initialize_wandb_run",
-    "read_wandb_run_id_from_checkpoint",
+    "add_swanlab_arguments",
+    "flatten_swanlab_metrics",
+    "flatten_swanlab_summary_metrics",
+    "initialize_swanlab_run",
+    "read_swanlab_run_id_from_checkpoint",
     "read_env_file",
-    "require_wandb_api_key",
-    "wandb_confusion_matrix",
-    "wandb_run_id",
+    "require_swanlab_api_key",
+    "swanlab_confusion_matrix",
+    "swanlab_run_id",
 ]

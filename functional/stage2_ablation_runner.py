@@ -17,8 +17,8 @@ from tqdm import tqdm
 
 from train_cls import classification_loss, constraints_from_dataset_batch
 from networks.classification_models import classification_model_config
-from functional.wandb_utils import (
-    initialize_wandb_run, flatten_wandb_summary_metrics, wandb_confusion_matrix, wandb_run_id,
+from functional.swanlab_utils import (
+    initialize_swanlab_run, flatten_swanlab_summary_metrics, swanlab_confusion_matrix, swanlab_run_id,
 )
 from functional.stage2_ablation_config import EXPERIMENTS
 from networks.stage2_ablation import build_ablation_model
@@ -207,7 +207,7 @@ def load_checkpoint(path):
 
 @optional_disk_output
 def save_checkpoint(path, payload):
-    # A failed save is reported to W&B but does not stop training.
+    # A failed save is reported to SwanLab but does not stop training.
     temporary = path.with_suffix(".tmp")
     torch.save(payload, temporary)
     temporary.replace(path)
@@ -219,7 +219,7 @@ def run_directory(args, experiment, seed):
 
 def protocol_config(args, experiment, seed, metadata):
     ignored = {"mode", "experiments", "seed", "resume", "output_dir", "workers", "device",
-               "list", "dry_run", "wandb_project", "wandb_entity", "wandb_run_name"}
+               "list", "dry_run", "swanlab_project", "swanlab_workspace", "swanlab_run_name"}
     arguments = {k: v for k, v in vars(args).items() if k not in ignored}
     arguments["data_root"] = str(Path(args.data_root).resolve())
     return {"version": 2, "args": arguments, "experiment": experiment, "seed": seed,
@@ -304,7 +304,7 @@ def run_experiment(args, experiment, seed):
                 # Legacy checkpoints keep the best metrics in the sibling file.
                 best_metrics = load_checkpoint(resume_path.with_name("best.pth"))["test"]
             restore_rng_state(saved["rng"])
-            resume_id = str(saved.get("wandb_run_id", "") or "")
+            resume_id = str(saved.get("swanlab_run_id", "") or "")
             resumed = True
             print(f"Resumed {resume_path}; next epoch: {start + 1}", flush=True)
         except Exception as error:
@@ -323,20 +323,20 @@ def run_experiment(args, experiment, seed):
     primary = "instance_accuracy"
     print(f"{directory}: parameters={parameters}; train={len(train)}, test={len(test)}")
     class_names = [name for name, _ in sorted(metadata["classes"].items(), key=lambda item: item[1])]
-    run_name = f"{args.wandb_run_name or args.save_name}_{experiment}_seed_{seed}"
-    rng_before_wandb = capture_rng_state()
-    wandb_run = initialize_wandb_run(
-        project=args.wandb_project, entity=args.wandb_entity, name=run_name, run_id=resume_id,
+    run_name = f"{args.swanlab_run_name or args.save_name}_{experiment}_seed_{seed}"
+    rng_before_swanlab = capture_rng_state()
+    swanlab_run = initialize_swanlab_run(
+        project=args.swanlab_project, workspace=args.swanlab_workspace, name=run_name, run_id=resume_id,
         config={**vars(args), "experiment": experiment, "seed": seed,
                 "constraint_components": list(EXPERIMENTS[experiment].components),
                 "model_config": classification_model_config(args), "parameter_count": parameters["total"],
                 "num_classes": count, "class_names": class_names,
                 "constraint_storage": "point_file_fields", "device": str(device)},
     )
-    restore_rng_state(rng_before_wandb)
+    restore_rng_state(rng_before_swanlab)
     try:
         if not resumed:
-            # Reset only after data/model/W&B initialization succeeds. In
+            # Reset only after data/model/SwanLab initialization succeeds. In
             # particular, remove old higher-epoch logs and completed results
             # so a shorter or interrupted new run cannot expose stale output.
             clear_run_outputs(directory)
@@ -356,7 +356,7 @@ def run_experiment(args, experiment, seed):
                        "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(),
                        "rng": capture_rng_state(), "best": best, "best_epoch": best_epoch,
                        "test": test_metrics, "parameters": parameters,
-                       "wandb_run_id": wandb_run_id(wandb_run),
+                       "swanlab_run_id": swanlab_run_id(swanlab_run),
                        "model_config": classification_model_config(args), "args": vars(args),
                        "best_acc": best, "best_metrics": best_metrics}
             best_saved = save_checkpoint(best_path, payload) if improved else False
@@ -373,11 +373,11 @@ def run_experiment(args, experiment, seed):
             }
             for split, metrics in (("train", train_metrics), ("test", test_metrics)):
                 metric_values = {k: v for k, v in metrics.items() if k != "loss" and not k.startswith("optimization/")}
-                log.update(flatten_wandb_summary_metrics(f"{split}/metric", metric_values))
-                log[f"{split}/confusion_matrix"] = wandb_confusion_matrix(
+                log.update(flatten_swanlab_summary_metrics(f"{split}/metric", metric_values))
+                log[f"{split}/confusion_matrix"] = swanlab_confusion_matrix(
                     metrics["confusion_matrix"], class_names,
                     title=f"{split.title()} Classification Confusion Matrix")
-            wandb_run.log(log, step=epoch)
+            swanlab_run.log(log, step=epoch)
             print(f"[{experiment} seed={seed}] {epoch + 1}/{args.epochs} "
                   f"loss={train_metrics['loss']:.6f} test/{primary}={test_metrics[primary]:.6f}", flush=True)
         # Use the metrics already evaluated at the best epoch. Never reload a
@@ -391,7 +391,7 @@ def run_experiment(args, experiment, seed):
         write_json(directory / "result.json", result)
         return result
     finally:
-        wandb_run.finish()
+        swanlab_run.finish()
 
 
 @optional_disk_output

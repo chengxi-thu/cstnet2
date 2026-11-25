@@ -12,6 +12,7 @@ import json
 from colorama import init
 
 from functional.stage2_ablation_config import EXPERIMENTS, SUITES, expand_experiments
+from functional.swanlab_utils import add_swanlab_arguments
 
 
 def parse_args(argv=None):
@@ -35,9 +36,7 @@ def parse_args(argv=None):
     parser.add_argument("--data_root", default="/opt/data/private/data_set/pcd_cstnet2/tmcad_pcd", help="Existing frozen Stage 1 prediction cache")
     parser.add_argument("--is_sample", action="store_true")
     parser.add_argument("--save_name", default="stage2_cls_ablation")
-    parser.add_argument("--wandb_project", default="cstnet2-s2-ablation")
-    parser.add_argument("--wandb_entity", default="")
-    parser.add_argument("--wandb_run_name", default="")
+    add_swanlab_arguments(parser, default_project="cstnet2-s2-ablation")
     parser.add_argument("--stage2_norm", choices=("ln", "bn"), default="ln")
     parser.add_argument("--token_dim", type=int, default=256)
     parser.add_argument("--transformer_layers", type=int, default=3)
@@ -59,7 +58,7 @@ def parse_args(argv=None):
     parser.add_argument("--resume", default="auto", metavar="MODE_OR_PATH",
                         help="Empty string: train from scratch; auto: try this experiment's last.pth "
                              "and restart if restoration fails; checkpoint path: restore strictly "
-                             "and raise on failure. Successful restoration continues the original W&B Run.")
+                             "and raise on failure. Successful restoration continues the original SwanLab Run.")
     parser.add_argument("--list", action="store_true", help="List experiments without loading PyTorch")
     parser.add_argument("--dry_run", action="store_true", help="Print resolved experiment settings only")
     args = parser.parse_args(argv)

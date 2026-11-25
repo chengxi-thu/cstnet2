@@ -76,9 +76,9 @@ python train_cls_ablation.py --mode evaluate --experiments no_location --seed 42
 python train_cls_ablation.py --mode summarize --seed 42
 ```
 
-`--resume` 为空字符串时（默认，可省略），即使已有结果也从第 1 轮重新训练，覆盖当前实验目录的 checkpoint、配置和结果，并清除旧的逐轮日志与评估文件。重新训练创建新的 W&B Run，已有线上 Run 保留；其他实验目录不受影响。
+`--resume` 为空字符串时（默认，可省略），即使已有结果也从第 1 轮重新训练，覆盖当前实验目录的 checkpoint、配置和结果，并清除旧的逐轮日志与评估文件。重新训练创建新的 SwanLab Run，已有线上 Run 保留；其他实验目录不受影响。
 
-`--resume auto` 会尝试恢复每个实验目录中的 last.pth；文件缺失、损坏、协议不匹配或状态恢复失败时，自动重置模型、优化器、调度器、随机状态和最佳指标，从头训练并创建新 W&B Run。`--resume /path/to/last.pth` 则严格恢复指定检查点，加载或恢复失败直接报错。成功恢复会继续原 W&B Run。旧版曾留出验证集的消融 checkpoint 不符合当前协议，可不传 --resume 重新训练并覆盖本地结果。
+`--resume auto` 会尝试恢复每个实验目录中的 last.pth；文件缺失、损坏、协议不匹配或状态恢复失败时，自动重置模型、优化器、调度器、随机状态和最佳指标，从头训练并创建新 SwanLab Run。`--resume /path/to/last.pth` 则严格恢复指定检查点，加载或恢复失败直接报错。成功恢复会继续原 SwanLab Run。旧版曾留出验证集的消融 checkpoint 不符合当前协议，可不传 --resume 重新训练并覆盖本地结果。
 
 ```text
 model_trained/stage2_ablation/cls/constraint_aware/<experiment>/seed_<n>/
@@ -92,7 +92,7 @@ model_trained/stage2_ablation/cls/constraint_aware/<experiment>/seed_<n>/
 
 checkpoint 保存模型、优化器、调度器、随机状态和数据协议。顶层 summary.csv、summary.json 每行一个运行，保留原始指标，仅导出当前 seed 的分类结果，不跨种子聚合。
 
-分类指标包括 OA、mAcc、macro F1、mAP、top-5、逐类指标和混淆矩阵。本入口与 train_cls.py 一样使用 W&B 记录训练数据，同时保留本地 JSON/CSV。
+分类指标包括 OA、mAcc、macro F1、mAP、top-5、逐类指标和混淆矩阵。本入口与 train_cls.py 一样使用 SwanLab 记录训练数据，同时保留本地 JSON/CSV。
 
 ## 验证
 
@@ -102,22 +102,22 @@ python -m unittest discover -s tests -p test_cls_ablation.py -v
 
 测试覆盖九项模型的反向传播和输入防泄漏、已有 train/test 目录、既有划分文件不被修改、无划分时拒绝创建、HDF5 划分保留、训练/测试评估、断点恢复及单种子导出。
 
-## 与 train_cls.py 对齐的训练与 W&B
+## 与 train_cls.py 对齐的训练与 SwanLab
 
 分类损失和约束组装直接复用 train_cls.py 的 classification_loss 与 constraints_from_dataset_batch。优化器、StepLR、辅助损失、label smoothing、梯度裁剪、按 batch 平均的 loss 及 test OA 选优规则一致。仍严格使用已有 train/test，不自行划分。
 
 支持相同参数名 --bs、--epoch、--lr、--decay_rate、--n_point，同时兼容旧消融入口的 --batch_size、--epochs、--learning_rate、--weight_decay。默认 batch=20。数据集路径统一使用 --data_root。支持 --is_sample，以及相同的 token/Transformer、stage2_norm、stream_dropout、use_stats_token 设置。--is_sample 仅用于抽样快速调试，不改变已有数据划分；正式实验默认读取全部数据。
 
-训练强制通过与 train_cls.py 相同的 initialize_wandb_run 读取项目 .env 中的 WANDB_API_KEY 并创建在线 Run。每个实验独立创建 Run，默认项目 cstnet2-s2；可设置 --wandb_project、--wandb_entity、--wandb_run_name。Run 名称始终附加实验名和 seed，避免九项实验混在同一条曲线中。
+训练通过与 train_cls.py 相同的 `initialize_swanlab_run` 读取项目根目录 `.env` 中的 `SWANLAB_API_KEY`。每个消融实验在默认项目 `cstnet2-s2-ablation` 中创建独立的在线 Run。可通过 `--swanlab_project`、`--swanlab_workspace`、`--swanlab_run_name` 指定项目、工作空间和名称。Run 名称始终附加实验名和 seed。
 
-记录字段包括 epoch、learning_rate、loss/train、loss/test、best/test_instance_accuracy、train/metric/*、test/metric/*、训练梯度范数、checkpoint 保存状态以及 train/test 混淆矩阵，命名与 train_cls.py 一致。W&B config 额外记录 experiment 和保留的 constraint_components。
+记录字段包括 epoch、learning_rate、loss/train、loss/test、best/test_instance_accuracy、train/metric/*、test/metric/*、训练梯度范数、checkpoint 保存状态以及 train/test 混淆矩阵，命名与 train_cls.py 一致。SwanLab config 额外记录 experiment 和保留的 constraint_components。
 
-last.pth 和 best.pth 保存 wandb_run_id；--resume 成功恢复时使用该 ID 恢复原 Run，并从恢复的 epoch 继续记录。训练结束或异常退出都会 finish 当前 Run。evaluate、summarize、list、dry_run 不创建 W&B Run。
+last.pth 和 best.pth 保存 swanlab_run_id；--resume 成功恢复时使用该 ID 恢复原 Run，并从恢复的 epoch 继续记录。训练结束或异常退出都会 finish 当前 Run。evaluate、summarize、list、dry_run 不创建 SwanLab Run。
 
 ```bash
-python train_cls_ablation.py --data_root /data/param20k_pred --experiments all --seed 42 --bs 20 --epoch 200 --lr 0.0001 --wandb_project cstnet2-s2
+python train_cls_ablation.py --data_root /data/param20k_pred --experiments all --seed 42 --bs 20 --epoch 200 --lr 0.0001 --swanlab_project cstnet2-s2
 ```
 
-每个实验仍使用独立 checkpoint 目录及单个可设置的 seed；原 train_cls.py 无需修改。W&B 验证测试使用 mock，不会将合成测试数据上传到真实项目。
+每个实验仍使用独立 checkpoint 目录及单个可设置的 seed；原 train_cls.py 无需修改。SwanLab 验证测试使用 mock，不会将合成测试数据上传到真实项目。
 
-本地检查点、JSON 日志或汇总写入失败时，打印提示并跳过该次输出，继续训练；后续输出仍会尝试保存。W&B 的 checkpoint/last_saved 和 checkpoint/best_saved 记录本轮实际保存状态（未尝试或失败为 0）。最佳轮次的测试指标保留在内存并写入后续检查点，训练结束不再依赖重新读取 best.pth。写盘失败期间的模型可能无法恢复；指定路径的 resume 和 evaluate 仍要求能够读取相应检查点；resume auto 读取失败则从头训练。
+本地检查点、JSON 日志或汇总写入失败时，打印提示并跳过该次输出，继续训练；后续输出仍会尝试保存。SwanLab 的 checkpoint/last_saved 和 checkpoint/best_saved 记录本轮实际保存状态（未尝试或失败为 0）。最佳轮次的测试指标保留在内存并写入后续检查点，训练结束不再依赖重新读取 best.pth。写盘失败期间的模型可能无法恢复；指定路径的 resume 和 evaluate 仍要求能够读取相应检查点；resume auto 读取失败则从头训练。

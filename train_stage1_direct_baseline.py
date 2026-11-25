@@ -13,9 +13,10 @@ from colorama import init
 from data_utils.stage1_dataset import Stage1ConstraintDataset
 from data_utils.huggingface_dataset import resolve_stage1_data_root
 from functional.stage1_direct_trainer import Stage1DirectTrainer
-from functional.wandb_utils import (
-    initialize_wandb_run,
-    read_wandb_run_id_from_checkpoint,
+from functional.swanlab_utils import (
+    add_swanlab_arguments,
+    initialize_swanlab_run,
+    read_swanlab_run_id_from_checkpoint,
 )
 from networks.stage1_direct_baselines import (
     DIRECT_BASELINE_MODEL_NAMES,
@@ -84,9 +85,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="",
         help="Checkpoint path; '' (empty) starts fresh; 'auto' resumes from the selected run's last.pth if present, otherwise starts fresh",
     )
-    parser.add_argument("--wandb_project", default="cstnet2-s1-baseline-abcmf30")
-    parser.add_argument("--wandb_entity", default="")
-    parser.add_argument("--wandb_run_name", default="")
+    add_swanlab_arguments(parser, default_project="cstnet2-s1-baseline-abcmf30")
     args = parser.parse_args(argv)
 
     if args.n_points <= 0 or args.bs <= 0 or args.workers < 0 or args.epochs <= 0:
@@ -178,17 +177,17 @@ def main(args: argparse.Namespace) -> dict:
         "train_file_count": len(train_loader.dataset),
         "resolved_data_root": resolved_data_root,
     }
-    run_name = args.wandb_run_name or f"stage1_direct_{args.model}_seed{args.seed}"
-    wandb_resume_id = read_wandb_run_id_from_checkpoint(resume_checkpoint)
-    if resume_checkpoint and not wandb_resume_id:
+    run_name = args.swanlab_run_name or f"stage1_direct_{args.model}_seed{args.seed}"
+    swanlab_resume_id = read_swanlab_run_id_from_checkpoint(resume_checkpoint)
+    if resume_checkpoint and not swanlab_resume_id:
         print(
-            "WARNING: resume checkpoint has no wandb_run_id; a new WandB Run will be created"
+            "WARNING: resume checkpoint has no swanlab_run_id; a new SwanLab Run will be created"
         )
-    run = initialize_wandb_run(
-        project=args.wandb_project,
-        entity=args.wandb_entity,
+    run = initialize_swanlab_run(
+        project=args.swanlab_project,
+        workspace=args.swanlab_workspace,
         name=run_name,
-        run_id=wandb_resume_id,
+        run_id=swanlab_resume_id,
         config=checkpoint_args,
     )
     print(
@@ -206,7 +205,7 @@ def main(args: argparse.Namespace) -> dict:
         gradient_clip_norm=args.gradient_clip_norm,
         use_amp=args.use_amp,
         checkpoint_args=checkpoint_args,
-        wandb_run=run,
+        swanlab_run=run,
     )
     try:
         return trainer.fit(resume_checkpoint=resume_checkpoint or None)

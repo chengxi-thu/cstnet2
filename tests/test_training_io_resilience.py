@@ -79,7 +79,7 @@ class TrainingIOResilienceTest(unittest.TestCase):
         batch = (xyz, torch.ones(2, 24, dtype=torch.long),
                  torch.nn.functional.normalize(torch.randn_like(xyz), dim=-1),
                  torch.ones(2, 24), torch.randn_like(xyz), torch.zeros(2, 24, dtype=torch.long))
-        run = SimpleNamespace(id="test-io", log=mock.Mock(side_effect=OSError(5, "WandB I/O")))
+        run = SimpleNamespace(id="test-io", log=mock.Mock(side_effect=OSError(5, "SwanLab I/O")))
         with tempfile.TemporaryDirectory() as directory:
             checkpoint_dir = str(Path(directory) / "checkpoints")
             log_path = str(Path(directory) / "log.json")
@@ -89,10 +89,10 @@ class TrainingIOResilienceTest(unittest.TestCase):
                 resilient_console(),
                 mock.patch("functional.checkpoint_io.Path.write_text", side_effect=OSError(5, "log I/O")),
                 mock.patch("functional.checkpoint_io.time.sleep"),
-                mock.patch("functional.cst_pred_trainer.wandb_confusion_matrix", return_value="chart"),
+                mock.patch("functional.cst_pred_trainer.swanlab_confusion_matrix", return_value="chart"),
             ):
                 trainer = CstPredTrainer(CstPredWrapper("attn_3dgcn"), [batch], checkpoint_dir,
-                                         log_path, 2, 1e-4, "io_test", wandb_run=run)
+                                         log_path, 2, 1e-4, "io_test", swanlab_run=run)
                 trainer.start()
             self.assertEqual(trainer.global_step, 2)
             self.assertEqual(run.log.call_count, 2)

@@ -119,7 +119,7 @@ pooled from every constraint stream and encoder level are fused by a Transformer
 cstnet2/
 |-- AGENTS.md                      Project rules and model specification
 |-- README.md                      This file
-|-- .env.example                   WandB API-key template (copy to .env)
+|-- .env                           SwanLab credentials for training
 |-- train_cst_pred.py              Stage 1 training entry point
 |-- train_stage1_direct_baseline.py Independent XYZ-only direct-baseline training
 |-- eval_cst_pred.py               Standalone Stage 1 evaluation entry point
@@ -288,7 +288,7 @@ version first, then install the common Python dependencies:
 conda create -n dp python=3.11
 conda activate dp
 pip install torch torchvision torchaudio
-pip install numpy scipy scikit-learn tqdm colorama einops matplotlib wandb h5py
+pip install numpy scipy scikit-learn tqdm colorama einops matplotlib swanlab h5py
 ```
 
 Optional dependencies:
@@ -305,28 +305,21 @@ For Linux servers, `pythonocc-core` is usually installed with:
 conda install -c conda-forge pythonocc-core
 ```
 
-All three training entry points require online WandB logging. Copy the tracked
-template to the ignored `.env` file and insert your API key before training:
-
-```bash
-cp .env.example .env
-```
-
-On Windows PowerShell:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Then edit `.env`:
+Training logs to SwanLab online. Set your SwanLab API key in the project-root
+`.env` before training.
 
 ```dotenv
-WANDB_API_KEY=your_real_wandb_api_key
+SWANLAB_API_KEY=your_swanlab_api_key_here
 ```
 
-The API key is read directly from the project-root `.env`; it is never passed
-as a command-line argument or copied into the WandB run config. Training stops
-with an error if `.env`, the key, or the `wandb` package is missing.
+Use `--swanlab_project`, `--swanlab_workspace`, and `--swanlab_run_name` to
+override the project, workspace, and experiment name. Training checkpoints
+store `swanlab_run_id` so that resuming training continues the same experiment.
+Resuming a checkpoint created with W&B starts a new SwanLab experiment at the
+restored training epoch.
+
+On Windows, use `python -X utf8` when redirecting training output to a file or
+pipe so the terminal can encode SwanLab's status messages.
 
 ### 2. Prepare the Dataset
 
@@ -409,13 +402,13 @@ All training boolean options are value-less flags. For example, use
 turned off with flags such as `--disable_mad_loss`.
 
 Stage 1 does not create or consume a test loader during training. At the end
-of each epoch it records aggregate metrics from all training batches to WandB
+of each epoch it records aggregate metrics from all training batches to SwanLab
 and the local JSON history. Consequently, Stage 1 `best_pmt_miou.pth`,
 and `best_constraint_score.pth` are selected from
 training metrics and carry `best_metrics_source: "train"` in the checkpoint.
 
 Stage 1 logs only loss summaries, aggregate training metrics, and its primitive
-confusion matrix to WandB. Runtime, learning-rate, gradient-diagnostic,
+confusion matrix to SwanLab. Runtime, learning-rate, gradient-diagnostic,
 checkpoint-status, and redundant legacy loss keys are intentionally omitted.
 
 Stage 1 reports constraint-property errors using GT
@@ -428,7 +421,7 @@ both point and Face levels.
 All three training tasks use the same atomic checkpoint writer. A storage I/O
 failure is retried three times; if all attempts fail, the temporary file is
 removed, the previous valid checkpoint is retained, and training continues.
-WandB checkpoint fields ending in `_saved` record whether each attempted epoch
+SwanLab checkpoint fields ending in `_saved` record whether each attempted epoch
 checkpoint was written successfully.
 
 Stage 1 uses the direct three-phase model. Its checkpoint route is direct_mlp_v1;
@@ -502,14 +495,14 @@ Resume the selected run with `--resume auto`, or pass a concrete direct-baseline
 checkpoint path. Architecture mismatches are rejected. Best checkpoints use
 training loss and training primitive mIoU.
 
-WandB logs once per epoch without a split prefix: `loss/loss_all`, the four
+SwanLab logs once per epoch without a split prefix: `loss/loss_all`, the four
 `loss/*_loss` components, `pmt_acc`, `pmt_macro_f1`, `pmt_miou`, raw and `final/`
 geometry errors, and `primitive_confusion` from training predictions. It also
 records `epoch`, `global_step`, and `learning_rate`. Valid-point counts, duplicate
 or weighted loss entries, efficiency metrics, and optimization diagnostics are
 omitted.
 
-Evaluate a direct checkpoint without initializing WandB:
+Evaluate a direct checkpoint without initializing SwanLab:
 
 ```bash
 python eval_stage1_direct_baseline.py \
@@ -539,7 +532,7 @@ python eval_cst_pred.py \
 
 The evaluator restores model architecture, feature settings, loss weights,
 loss switches, and geometry ramp settings from the checkpoint. It does not
-restore optimizer state and does not initialize WandB. The generated JSON
+restore optimizer state and does not initialize SwanLab. The generated JSON
 contains dataset metadata, aggregate raw and weighted losses, primitive
 confusion metrics, raw-head direction/dimension/location errors, and `direct_*`
 metrics for the canonicalized final constraints. No clustering or fitting runs.
@@ -709,6 +702,33 @@ With the default `--save_name stage2_cls`, weights are isolated automatically
 as `model_trained/stage2_cls_<model_name>.pth`; constraint-enabled baselines use
 the `_constraints` suffix. Training starts fresh unless `--resume` is set.
 
+### Wheel offset binary classification
+
+Run all ten experiments with one model. Each run labels `coaxis` as 0 and one
+numeric `offset-*` directory as 1. Seed 2026 assigns 80% of each class to
+training and 20% to testing. All ten runs share the same coaxis split.
+
+```bash
+python train_cls_wheels.py --model pointnet
+python train_cls_wheels.py --model pointnet --baseline_use_constraints
+python train_cls_wheels.py --model cstnet
+python train_cls_wheels.py --model constraint_aware
+```
+
+CSTNet reads the nine-column files in `F:\DataSet\cstnet2\wheels_pcd_cstnet`
+(`--data_root_cstnet`) for direction, nearby flag and primitive type.
+All other models read `F:\DataSet\cstnet2\wheels_pcd` (`--data_root`).
+`constraint_aware` uses the primitive type, direction, dimension and location
+stored in those 12-column files. Baselines use XYZ by default. Pass
+`--baseline_use_constraints` to also supply the same 12D per-point constraints.
+To predict those constraints online, pass a frozen geometry or joint checkpoint
+with `--stage1_checkpoint`.
+
+Each pair gets its own classifier, optimizer, SwanLab run and last/best weights.
+`model_trained/wheels_binary/<model-run-name>/` also contains the file lists
+in `splits.json` and the final and best test accuracies in `results.json`.
+Use `--resume` to continue existing pairs and start any missing ones.
+
 ### Train Stage 2 MFCAD++ Segmentation
 
 The MFCAD++ point files must use the 14-column format documented in
@@ -767,9 +787,9 @@ experiments reuse the training-only `class_statistics.json` cache. Evaluation
 reconstructs the model family and input mode from the checkpoint; baseline
 architecture defaults are read from the corresponding model file.
 
-The default segmentation WandB Run name is generated from the resolved model
+The default segmentation SwanLab Run name is generated from the resolved model
 configuration, for example `constraint_aware`, `pointnet2`, or
-`pointnet2_constraints`. `--wandb_run_name` remains available as an explicit
+`pointnet2_constraints`. `--swanlab_run_name` remains available as an explicit
 override.
 
 Segmentation attempts to resume `last.pth` from the selected model's fixed
@@ -782,7 +802,7 @@ training split only, plus `last.pth` and `best_point_miou.pth` under each model'
 output directory.
 
 Resume all optimizer, scheduler, AMP, epoch, metric, RNG, and the original
-WandB Run by omitting `--not_resume`:
+SwanLab Run by omitting `--not_resume`:
 
 ```bash
 python train_seg.py --model constraint_aware
@@ -795,7 +815,7 @@ python eval_seg.py model_trained/seg/constraint_aware/best_point_miou.pth --spli
 ```
 
 Evaluation also requires `.env` and uploads the complete selected-split loss,
-point/Face metrics, per-class values, and confusion matrices to WandB while
+point/Face metrics, per-class values, and confusion matrices to SwanLab while
 retaining the local JSON result.
 
 ### Visualization

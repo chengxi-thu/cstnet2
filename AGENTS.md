@@ -293,7 +293,7 @@ over its own retained points. Do not replace
 out-of-range labels with zero; real zero labels remain valid. Other losses
 are unaffected. Original and trimmed metrics still use the original labels.
 Additional inrange metrics use the same GT primitive-instance mask for all
-three attributes and are logged under the top-level inrange/ W&B section.
+three attributes and are logged under the top-level inrange/ SwanLab section.
 Aggregate using each attribute's retained count.
 Do not compute losses inactive in the selected phase. No geometric residual,
 instance consistency, instance-balanced attribute reduction, observability

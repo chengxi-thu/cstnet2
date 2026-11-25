@@ -143,17 +143,22 @@ class Stage1Predictor:
         for parameter in self.model.parameters():
             parameter.requires_grad_(False)
 
-    @torch.inference_mode()
-    def predict(self, xyz_array: np.ndarray) -> dict[str, np.ndarray]:
-        xyz = torch.as_tensor(
-            np.ascontiguousarray(xyz_array), dtype=torch.float32, device=self.device
-        ).unsqueeze(0)
+    @torch.no_grad()
+    def predict_batch(self, xyz: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Extract frozen per-point constraints for a batch on the predictor's device."""
         model_output = stage1_forward(self.model, xyz, use_extra_features=self.use_extra_features, feature_k=self.feature_k)
         required_outputs = ("embedding", "log_pmt", "mad", "dim", "loc")
         if any(not torch.isfinite(model_output[name]).all() for name in required_outputs):
             raise FloatingPointError("Stage 1 output contains NaN or Inf")
 
-        constraints = direct_constraints(model_output)
+        return direct_constraints(model_output)
+
+    @torch.inference_mode()
+    def predict(self, xyz_array: np.ndarray) -> dict[str, np.ndarray]:
+        xyz = torch.as_tensor(
+            np.ascontiguousarray(xyz_array), dtype=torch.float32, device=self.device
+        ).unsqueeze(0)
+        constraints = self.predict_batch(xyz)
         return {
             "pmt": constraints["primitive_type"].argmax(dim=-1)[0].cpu().numpy(),
             "mad": constraints["direction"][0].cpu().numpy(),

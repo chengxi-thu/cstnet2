@@ -23,7 +23,7 @@ class Stage2SegmentationTest(unittest.TestCase):
         self.assertAlmostEqual(metrics["point_mean_dice"], 2.0 / 3.0)
         self.assertEqual(metrics["point_per_class_f1"], metrics["point_per_class_dice"])
 
-    def test_segmentation_checkpoint_persists_wandb_run_id(self):
+    def test_segmentation_checkpoint_persists_swanlab_run_id(self):
         from types import SimpleNamespace
 
         from functional.stage2_seg_trainer import Stage2SegmentationTrainer
@@ -45,11 +45,11 @@ class Stage2SegmentationTest(unittest.TestCase):
         }
         trainer.label_map = {"labels": [{"id": 0}, {"id": 1}]}
         trainer.class_weights = torch.ones(2)
-        trainer.wandb_run = SimpleNamespace(id="segmentation-run-id")
+        trainer.swanlab_run = SimpleNamespace(id="segmentation-run-id")
 
         payload = trainer._checkpoint_payload(epoch=3)
 
-        self.assertEqual(payload["wandb_run_id"], "segmentation-run-id")
+        self.assertEqual(payload["swanlab_run_id"], "segmentation-run-id")
 
     def test_checkpoint_io_failure_is_retried_then_skipped(self):
         import tempfile
@@ -130,19 +130,19 @@ class Stage2SegmentationTest(unittest.TestCase):
         self.assertFalse(hasattr(default_args, "output_dir"))
         self.assertFalse(hasattr(default_args, "dgcnn_k"))
         self.assertFalse(hasattr(default_args, "pointmamba_tokens"))
-        self.assertFalse(hasattr(default_args, "use_wandb"))
-        self.assertEqual(default_args.wandb_project, "cstnet2-s2")
+        self.assertFalse(hasattr(default_args, "use_swanlab"))
+        self.assertEqual(default_args.swanlab_project, "cstnet2-s2")
         self.assertTrue(train_seg.parse_args(["--not_resume"]).not_resume)
         config = {
             "model": "pointnet2",
             "baseline_use_constraints": True,
         }
         self.assertEqual(
-            train_seg.segmentation_wandb_run_name(config),
+            train_seg.segmentation_swanlab_run_name(config),
             "stage2_seg_pointnet2_constraints",
         )
         self.assertEqual(
-            train_seg.segmentation_wandb_run_name(config, "custom-run"),
+            train_seg.segmentation_swanlab_run_name(config, "custom-run"),
             "custom-run",
         )
 

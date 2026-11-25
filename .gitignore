@@ -6,6 +6,7 @@ cst_fea/__pycache__/
 .idea/
 model_trained/
 log/
+swanlog/
 backups/
 cst_pred/cst_pcd_3dgcn.py
 train_reg.py

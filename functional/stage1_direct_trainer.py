@@ -24,10 +24,10 @@ from functional.finite_checks import assert_finite_tensors
 from functional.stage1_direct_loss import direct_constraint_loss, geometry_loss_masks
 from functional.stage1_direct_metrics import Stage1DirectMetricAccumulator
 from functional.stage1_metrics import primitive_prediction_collapsed
-from functional.wandb_utils import (
-    flatten_wandb_summary_metrics,
-    wandb_confusion_matrix,
-    wandb_run_id,
+from functional.swanlab_utils import (
+    flatten_swanlab_summary_metrics,
+    swanlab_confusion_matrix,
+    swanlab_run_id,
 )
 from networks.stage1_direct_baselines import stage1_direct_model_config
 
@@ -95,7 +95,7 @@ class Stage1DirectTrainer:
         gradient_clip_norm: float = 1.0,
         use_amp: bool = False,
         checkpoint_args: Mapping[str, Any] | None = None,
-        wandb_run: Any = None,
+        swanlab_run: Any = None,
     ):
         self.model = model
         self.optimizer = optimizer
@@ -119,7 +119,7 @@ class Stage1DirectTrainer:
         self.model_config = stage1_direct_model_config(
             getattr(model, "model_config", self.checkpoint_args)
         )
-        self.wandb_run = wandb_run
+        self.swanlab_run = swanlab_run
         self.start_epoch = 0
         self.global_step = 0
         self.best_loss = float("inf")
@@ -245,7 +245,7 @@ class Stage1DirectTrainer:
             "args": self.checkpoint_args,
             "model_config": self.model_config,
             "rng_state": capture_rng_state(),
-            "wandb_run_id": wandb_run_id(self.wandb_run),
+            "swanlab_run_id": swanlab_run_id(self.swanlab_run),
         }
 
     def _save_checkpoint(self, filename: str, epoch: int) -> bool:
@@ -306,8 +306,8 @@ class Stage1DirectTrainer:
         )
         os.replace(temporary, destination)
 
-    def _log_wandb(self, record: Mapping[str, Any]) -> None:
-        if self.wandb_run is None:
+    def _log_swanlab(self, record: Mapping[str, Any]) -> None:
+        if self.swanlab_run is None:
             return
         payload: dict[str, Any] = {
             "epoch": int(record["epoch"]) + 1,
@@ -316,15 +316,15 @@ class Stage1DirectTrainer:
                 float(group["lr"]) for group in self.optimizer.param_groups
             ),
         }
-        payload.update(flatten_wandb_summary_metrics("loss", record["train_loss"]))
+        payload.update(flatten_swanlab_summary_metrics("loss", record["train_loss"]))
         for name, value in record["train"].items():
-            payload.update(flatten_wandb_summary_metrics(name, value))
-        payload["primitive_confusion"] = wandb_confusion_matrix(
+            payload.update(flatten_swanlab_summary_metrics(name, value))
+        payload["primitive_confusion"] = swanlab_confusion_matrix(
             record["train"]["pmt_confusion_matrix"],
             PRIMITIVE_CLASS_NAMES,
             title="Stage 1 Direct Primitive Confusion",
         )
-        self.wandb_run.log(payload, step=int(record["epoch"]) + 1)
+        self.swanlab_run.log(payload, step=int(record["epoch"]) + 1)
 
     def fit(
         self, resume_checkpoint: str | os.PathLike[str] | None = None
@@ -389,7 +389,7 @@ class Stage1DirectTrainer:
                 f"dimension={train_metrics['final/dimension_mean_absolute_error']:.6f} "
                 f"location={train_metrics['final/location_mean_distance_error']:.6f}"
             )
-            self._log_wandb(latest)
+            self._log_swanlab(latest)
         return latest
 
 

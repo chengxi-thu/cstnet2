@@ -19,10 +19,10 @@ except ImportError:  # pragma: no cover - progress bars are optional
 
 from functional.segmentation_loss import WeightedSegmentationLoss
 from functional.segmentation_metrics import SegmentationMetrics
-from functional.wandb_utils import (
-    flatten_wandb_summary_metrics,
-    wandb_confusion_matrix,
-    wandb_run_id,
+from functional.swanlab_utils import (
+    flatten_swanlab_summary_metrics,
+    swanlab_confusion_matrix,
+    swanlab_run_id,
 )
 from functional.checkpoint_io import (
     CHECKPOINT_SAVE_ATTEMPTS,
@@ -111,7 +111,7 @@ class Stage2SegmentationTrainer:
         gradient_clip_norm: float = 1.0,
         use_amp: bool = True,
         checkpoint_args: dict[str, Any] | None = None,
-        wandb_run: Any = None,
+        swanlab_run: Any = None,
     ):
         self.model = model
         self.optimizer = optimizer
@@ -132,7 +132,7 @@ class Stage2SegmentationTrainer:
         ]
         self.output_dir = Path(output_dir)
         self.checkpoint_args = dict(checkpoint_args or {})
-        self.wandb_run = wandb_run
+        self.swanlab_run = swanlab_run
         self.rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
         self.is_main = self.rank == 0
         if self.is_main:
@@ -281,7 +281,7 @@ class Stage2SegmentationTrainer:
             "label_map": self.label_map,
             "class_weights": self.class_weights,
             "rng_state": capture_rng_state(),
-            "wandb_run_id": wandb_run_id(self.wandb_run),
+            "swanlab_run_id": swanlab_run_id(self.swanlab_run),
         }
 
     def _save_checkpoint(self, path: Path, epoch: int) -> bool:
@@ -385,7 +385,7 @@ class Stage2SegmentationTrainer:
                     f"face_F1={val_metrics['face_mean_f1']:.4f} "
                     f"best={self.best_metric:.4f}"
                 )
-                if self.wandb_run is not None:
+                if self.swanlab_run is not None:
                     payload = {
                         "epoch": epoch + 1,
                         "global_step": self.global_step,
@@ -397,12 +397,12 @@ class Stage2SegmentationTrainer:
                         "checkpoint/best_saved": int(best_checkpoint_saved),
                     }
                     payload.update(
-                        flatten_wandb_summary_metrics(
+                        flatten_swanlab_summary_metrics(
                             "train/metric", train_metrics
                         )
                     )
                     payload.update(
-                        flatten_wandb_summary_metrics("val/metric", val_metrics)
+                        flatten_swanlab_summary_metrics("val/metric", val_metrics)
                     )
                     for split, metrics in (
                         ("train", train_metrics),
@@ -410,7 +410,7 @@ class Stage2SegmentationTrainer:
                     ):
                         for level in ("point", "face"):
                             payload[f"{split}/confusion_matrix/{level}"] = (
-                                wandb_confusion_matrix(
+                                swanlab_confusion_matrix(
                                     metrics[f"{level}_confusion_matrix"],
                                     self.class_names,
                                     title=(
@@ -419,5 +419,5 @@ class Stage2SegmentationTrainer:
                                     ),
                                 )
                             )
-                    self.wandb_run.log(payload, step=epoch)
+                    self.swanlab_run.log(payload, step=epoch)
         return latest_metrics

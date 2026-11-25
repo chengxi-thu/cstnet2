@@ -16,9 +16,10 @@ from data_utils.mfcad_seg_dataset import DEFAULT_LABEL_MAP, Stage2SegmentationDa
 from functional.cuda_runtime import preload_cuda_nvrtc
 from functional.segmentation_loss import compute_training_class_statistics
 from functional.stage2_seg_trainer import Stage2SegmentationTrainer
-from functional.wandb_utils import (
-    initialize_wandb_run,
-    read_wandb_run_id_from_checkpoint,
+from functional.swanlab_utils import (
+    add_swanlab_arguments,
+    initialize_swanlab_run,
+    read_swanlab_run_id_from_checkpoint,
 )
 from networks.cstnet import add_cstnet_arguments, load_cstnet_weights
 from networks.segmentation_models import (
@@ -41,7 +42,7 @@ def segmentation_run_name(model_config: dict[str, object]) -> str:
     return model_name
 
 
-def segmentation_wandb_run_name(
+def segmentation_swanlab_run_name(
     model_config: dict[str, object],
     requested_name: str = "",
     save_name: str = "stage2_seg",
@@ -146,19 +147,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--recompute_class_statistics", action="store_true", default=False,
         help="Ignore cached class statistics and scan the training split again",
     )
-    parser.add_argument(
-        "--wandb_project", type=str, default="cstnet2-s2", help="WandB project name",
-    )
-    parser.add_argument(
-        "--wandb_entity", type=str, default="", help="Optional WandB entity/team",
-    )
+    add_swanlab_arguments(parser, default_project="cstnet2-s2")
     parser.add_argument(
         "--save_name", type=str, default="stage2_seg",
-        help="Fallback WandB name; stage2_seg and stage2_seg_cstpred append the model name",
-    )
-    parser.add_argument(
-        "--wandb_run_name", type=str, default="",
-        help="Optional WandB run name; overrides the name derived from --save_name",
+        help="Fallback SwanLab name; stage2_seg and stage2_seg_cstpred append the model name",
     )
     add_cstnet_arguments(parser)
     args = parser.parse_args(argv)
@@ -271,26 +263,26 @@ def main(args: argparse.Namespace) -> None:
         weight_decay=args.weight_decay,
     )
 
-    wandb_run = None
+    swanlab_run = None
     if rank == 0:
-        wandb_resume_id = read_wandb_run_id_from_checkpoint(resume_checkpoint)
-        if resume_checkpoint and not wandb_resume_id:
+        swanlab_resume_id = read_swanlab_run_id_from_checkpoint(resume_checkpoint)
+        if resume_checkpoint and not swanlab_resume_id:
             print(
-                "WARNING: resume checkpoint has no wandb_run_id; "
-                "a new WandB Run will be created for this legacy checkpoint"
+                "WARNING: resume checkpoint has no swanlab_run_id; "
+                "a new SwanLab Run will be created for this legacy checkpoint"
             )
-        resolved_run_name = segmentation_wandb_run_name(
-            model_config, args.wandb_run_name, args.save_name
+        resolved_run_name = segmentation_swanlab_run_name(
+            model_config, args.swanlab_run_name, args.save_name
         )
-        wandb_run = initialize_wandb_run(
-            project=args.wandb_project,
-            entity=args.wandb_entity,
+        swanlab_run = initialize_swanlab_run(
+            project=args.swanlab_project,
+            workspace=args.swanlab_workspace,
             name=resolved_run_name,
-            run_id=wandb_resume_id,
+            run_id=swanlab_resume_id,
             config={
                 **vars(args),
                 "selected_data_root": data_root,
-                "resolved_wandb_run_name": resolved_run_name,
+                "resolved_swanlab_run_name": resolved_run_name,
                 "model_config": model_config,
                 "parameter_count": parameter_count,
                 "num_classes": train_loader.dataset.num_classes,
@@ -315,13 +307,13 @@ def main(args: argparse.Namespace) -> None:
         gradient_clip_norm=args.gradient_clip_norm,
         use_amp=args.use_amp,
         checkpoint_args=vars(args),
-        wandb_run=wandb_run,
+        swanlab_run=swanlab_run,
     )
     try:
         trainer.fit(resume_checkpoint=resume_checkpoint)
     finally:
-        if wandb_run is not None:
-            wandb_run.finish()
+        if swanlab_run is not None:
+            swanlab_run.finish()
         if distributed:
             dist.destroy_process_group()
 
