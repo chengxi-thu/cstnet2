@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 from torch.utils.data.distributed import DistributedSampler
 
 from data_utils.stage2_h5 import Stage2H5Store, resolve_storage_format
+from data_utils.constraint_dataset_common import cstnet_attributes
 
 
 DEFAULT_LABEL_MAP = Path(__file__).with_name("mfcad_label_map.json")
@@ -75,7 +76,7 @@ class DistributedEvalSampler(Sampler[int]):
 
 
 class Stage2SegmentationDataset(Dataset):
-    """Read normalized 14-column MFCAD++ point clouds with Stage 1 constraints."""
+    """Read 14-column Stage 2 clouds or 11-column legacy CSTNet clouds."""
 
     def __init__(
         self,
@@ -86,10 +87,12 @@ class Stage2SegmentationDataset(Dataset):
         use_npy_cache: bool = False,
         validate_face_labels: bool = True,
         storage_format: str = "auto",
+        cstnet_inputs: bool = False,
     ):
         self.root = Path(root)
         self.split = "val" if split.lower() == "validation" else split.lower()
         self.n_points = n_points
+        self.cstnet_inputs = cstnet_inputs
         if n_points is not None and n_points <= 0:
             raise ValueError("n_points must be positive or None")
         self.use_npy_cache = bool(use_npy_cache)
@@ -97,7 +100,7 @@ class Stage2SegmentationDataset(Dataset):
         self.label_map_path = str(Path(label_map_path).resolve())
         self.label_map = load_label_map(label_map_path)
         self.num_classes = len(self.label_map["labels"])
-        self.storage_format = resolve_storage_format(self.root, storage_format)
+        self.storage_format = resolve_storage_format(self.root, storage_format, cstnet_inputs=cstnet_inputs)
         self._h5_store = None
         if self.storage_format == "h5":
             self._h5_store = Stage2H5Store(self.root, "segmentation", self.split)
@@ -142,9 +145,11 @@ class Stage2SegmentationDataset(Dataset):
             array = np.loadtxt(path, dtype=np.float32)
         if array.ndim == 1:
             array = array.reshape(1, -1)
-        if array.ndim != 2 or array.shape[1] != EXPECTED_COLUMNS:
+        width = 11 if self.cstnet_inputs else EXPECTED_COLUMNS
+        if array.ndim != 2 or array.shape[1] != width:
+            layout = "CSTNet segmentation (with nearby labels)" if self.cstnet_inputs else "MFCAD++"
             raise ValueError(
-                f"expected {EXPECTED_COLUMNS} columns in {path}, got shape {array.shape}"
+                f"expected {width} columns in {layout} sample {path}, got shape {array.shape}"
             )
         if not np.isfinite(array).all():
             raise ValueError(f"non-finite value found in MFCAD++ sample: {path}")
@@ -163,7 +168,10 @@ class Stage2SegmentationDataset(Dataset):
     def __getitem__(self, index: int) -> dict[str, Any]:
         path = self.files[index]
         point_set = self.load_raw_sample(index)
-        point_set = point_set[self._point_indices(point_set.shape[0])]
+        indices = self._point_indices(point_set.shape[0])
+        if self.cstnet_inputs:
+            constraints = cstnet_attributes(point_set[:, :-2], source=path)[indices]
+        point_set = point_set[indices]
 
         xyz = point_set[:, 0:3].copy()
         raw_pmt = point_set[:, 3]
@@ -171,11 +179,8 @@ class Stage2SegmentationDataset(Dataset):
         if not np.array_equal(raw_pmt, pmt.astype(raw_pmt.dtype)) or np.any((pmt < 0) | (pmt > 4)):
             raise ValueError(f"invalid primitive type in {path}; expected integer ids in [0, 4]")
 
-        direction = point_set[:, 4:7].copy()
-        dimension = point_set[:, 7:8].copy()
-        location = point_set[:, 8:11].copy()
-        raw_face_ids = point_set[:, 12]
-        raw_labels = point_set[:, 13]
+        raw_face_ids = point_set[:, -2]
+        raw_labels = point_set[:, -1]
         face_ids = raw_face_ids.astype(np.int64)
         labels = raw_labels.astype(np.int64)
         if not np.array_equal(raw_face_ids, face_ids.astype(raw_face_ids.dtype)):
@@ -191,23 +196,23 @@ class Stage2SegmentationDataset(Dataset):
 
         primitive_valid = np.ones_like(pmt, dtype=bool)
         direction_valid = np.isin(pmt, (0, 1, 2))
-        dimension_valid = np.isin(pmt, (1, 2, 3))
-        location_valid = np.isin(pmt, (0, 1, 2, 3))
+        has_geometry = point_set.shape[1] == EXPECTED_COLUMNS
+        dimension_valid = has_geometry & np.isin(pmt, (1, 2, 3))
+        location_valid = has_geometry & np.isin(pmt, (0, 1, 2, 3))
         constraint_masks = np.stack(
             [primitive_valid, direction_valid, dimension_valid, location_valid],
             axis=-1,
         )
 
-        # Remove all invalid sentinels before the network sees the values. The
-        # separate masks are propagated through shared FPS and used by cross-attention.
-        direction[~direction_valid] = 0.0
-        dimension[~dimension_valid] = 0.0
-        location[~location_valid] = 0.0
-        primitive_one_hot = np.eye(5, dtype=np.float32)[pmt]
-        constraints = np.concatenate(
-            [primitive_one_hot, direction, dimension, location],
-            axis=-1,
-        ).astype(np.float32, copy=False)
+        if not self.cstnet_inputs:
+            direction = point_set[:, 4:7].copy()
+            dimension = point_set[:, 7:8].copy()
+            location = point_set[:, 8:11].copy()
+            direction[~direction_valid] = 0.0
+            dimension[~dimension_valid] = 0.0
+            location[~location_valid] = 0.0
+            primitive_one_hot = np.eye(5, dtype=np.float32)[pmt]
+            constraints = np.concatenate((primitive_one_hot, direction, dimension, location), axis=-1)
 
         if self.validate_face_labels:
             for face_id in np.unique(face_ids):
@@ -239,6 +244,7 @@ class Stage2SegmentationDataset(Dataset):
         pin_memory: bool = True,
         drop_last: bool = True,
         storage_format: str = "auto",
+        cstnet_inputs: bool = False,
     ) -> tuple[DataLoader, DataLoader, DataLoader | None]:
         common = {
             "root": root,
@@ -246,6 +252,7 @@ class Stage2SegmentationDataset(Dataset):
             "label_map_path": label_map_path,
             "use_npy_cache": use_npy_cache,
             "storage_format": storage_format,
+            "cstnet_inputs": cstnet_inputs,
         }
         train_dataset = Stage2SegmentationDataset(split="train", **common)
         val_dataset = Stage2SegmentationDataset(split="val", **common)

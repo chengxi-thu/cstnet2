@@ -54,7 +54,7 @@ def compute_training_class_statistics(
     counts = np.zeros(dataset.num_classes, dtype=np.int64)
     for file_id, path in enumerate(dataset.files):
         array = dataset.load_raw_sample(file_id)
-        raw_labels = array[:, 13]
+        raw_labels = array[:, -1]  # last column in both MFCAD++ point layouts
         labels = raw_labels.astype(np.int64)
         if not np.array_equal(raw_labels, labels):
             raise ValueError(f"non-integer segmentation label while scanning {path}")

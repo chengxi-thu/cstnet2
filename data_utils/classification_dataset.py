@@ -11,6 +11,8 @@ from colorama import Fore
 from torch.utils.data import DataLoader, Dataset, RandomSampler
 
 from data_utils.constraint_dataset_common import (
+    CONSTRAINT_POINT_COLUMNS,
+    cstnet_attributes,
     discover_txt_files,
     load_constraint_point_file,
     sample_without_replacement,
@@ -219,6 +221,7 @@ class Stage2ClassificationDataset(Dataset):
         test_ratio: float = DEFAULT_TEST_RATIO,
         split_seed: int = DEFAULT_SPLIT_SEED,
         storage_format: str = "auto",
+        cstnet_inputs: bool = False,
     ):
         self.root = Path(root)
         self.split = str(split).lower()
@@ -229,7 +232,8 @@ class Stage2ClassificationDataset(Dataset):
             )
         self.n_points = int(n_points)
         self.data_augmentation = bool(data_augmentation)
-        self.storage_format = resolve_storage_format(self.root, storage_format)
+        self.cstnet_inputs = cstnet_inputs
+        self.storage_format = resolve_storage_format(self.root, storage_format, cstnet_inputs=cstnet_inputs)
         self._h5_store = None
         if self.storage_format == "h5":
             self._h5_store = Stage2H5Store(self.root, "classification", self.split)
@@ -308,18 +312,23 @@ class Stage2ClassificationDataset(Dataset):
         class_index, path = self.datapath[index]
         point_set = (
             self._h5_store.load(index) if self._h5_store is not None
-            else load_constraint_point_file(path, task_name="Stage 2 classification")
+            else load_constraint_point_file(
+                path,
+                task_name="CSTNet classification (with nearby labels)" if self.cstnet_inputs else "Stage 2 classification",
+                expected_columns=9 if self.cstnet_inputs else CONSTRAINT_POINT_COLUMNS,
+            )
         )
-        point_set = sample_without_replacement(
-            point_set,
-            self.n_points,
-            path=path,
-        )
-        xyz, pmt, direction, dimension, location, _ = (
-            split_constraint_columns(point_set)
-        )
+        if self.cstnet_inputs:
+            # Validate every recorded edge before selecting the training points.
+            attributes = cstnet_attributes(point_set, source=path)
+            point_set = np.concatenate((point_set[:, :3], attributes), axis=1)
+        point_set = sample_without_replacement(point_set, self.n_points, path=path)
+        xyz = point_set[:, :3]
         if self.data_augmentation:
             xyz = xyz + np.random.normal(0.0, 0.02, size=xyz.shape)
+        if self.cstnet_inputs:
+            return xyz, class_index, point_set[:, 3:]
+        _, pmt, direction, dimension, location, _ = split_constraint_columns(point_set)
         return (
             xyz,
             class_index,
@@ -346,6 +355,7 @@ class Stage2ClassificationDataset(Dataset):
         test_ratio=DEFAULT_TEST_RATIO,
         split_seed=DEFAULT_SPLIT_SEED,
         storage_format="auto",
+        cstnet_inputs=False,
     ):
         train_set = Stage2ClassificationDataset(
             root=root,
@@ -354,6 +364,7 @@ class Stage2ClassificationDataset(Dataset):
             test_ratio=test_ratio,
             split_seed=split_seed,
             storage_format=storage_format,
+            cstnet_inputs=cstnet_inputs,
         )
         test_set = Stage2ClassificationDataset(
             root=root,
@@ -363,6 +374,7 @@ class Stage2ClassificationDataset(Dataset):
             test_ratio=test_ratio,
             split_seed=split_seed,
             storage_format=storage_format,
+            cstnet_inputs=cstnet_inputs,
         )
         loader_kwargs = {
             "batch_size": bs,

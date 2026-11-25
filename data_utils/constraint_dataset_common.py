@@ -63,8 +63,9 @@ def load_constraint_point_file(
     *,
     task_name: str,
     allow_extra_columns: bool = False,
+    expected_columns: int = CONSTRAINT_POINT_COLUMNS,
 ) -> np.ndarray:
-    """Load the 12-column constraint core, optionally discarding later columns."""
+    """Load the requested point layout, optionally discarding later columns."""
     path = Path(path)
     point_set = np.loadtxt(path, dtype=np.float32)
     if point_set.ndim == 1:
@@ -76,25 +77,41 @@ def load_constraint_point_file(
         )
     column_count = point_set.shape[1]
     valid_column_count = (
-        column_count >= CONSTRAINT_POINT_COLUMNS
+        column_count >= expected_columns
         if allow_extra_columns
-        else column_count == CONSTRAINT_POINT_COLUMNS
+        else column_count == expected_columns
     )
     if not valid_column_count:
         expectation = (
-            f"at least {CONSTRAINT_POINT_COLUMNS}"
+            f"at least {expected_columns}"
             if allow_extra_columns
-            else str(CONSTRAINT_POINT_COLUMNS)
+            else str(expected_columns)
         )
         raise ValueError(
             f"expected {expectation} columns in {task_name} sample "
             f"{path}, got shape {point_set.shape}"
         )
-    if allow_extra_columns and column_count > CONSTRAINT_POINT_COLUMNS:
-        point_set = point_set[:, :CONSTRAINT_POINT_COLUMNS]
+    if allow_extra_columns and column_count > expected_columns:
+        point_set = point_set[:, :expected_columns]
     if not np.isfinite(point_set).all():
         raise ValueError(f"non-finite value found in {task_name} sample: {path}")
     return point_set
+
+
+def cstnet_attributes(core: np.ndarray, *, source: str | Path = "CSTNet input") -> np.ndarray:
+    """Pack the recorded direction, binary nearby label and primitive from legacy rows."""
+    if core.ndim != 2 or core.shape[1] != 9:
+        raise ValueError(f"{source}: CSTNet requires 9 point columns including the nearby label")
+    raw_type = core[:, 3]
+    primitive = raw_type.astype(np.int64)
+    if not np.array_equal(primitive, raw_type) or np.any((primitive < 0) | (primitive >= 5)):
+        raise ValueError(f"{source}: CSTNet primitive ids must be integers in [0, 4]")
+    direction = core[:, 4:7]
+    nearby = core[:, 7]
+    if not np.isin(nearby, (0, 1)).all():
+        raise ValueError(f"{source}: CSTNet nearby labels must be 0 or 1")
+    edge = np.eye(2, dtype=np.float32)[nearby.astype(np.int64)]
+    return np.concatenate((direction, edge, np.eye(5, dtype=np.float32)[primitive]), axis=-1)
 
 
 def sample_without_replacement(

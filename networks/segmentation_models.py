@@ -8,6 +8,7 @@ import torch.nn as nn
 
 from functional.constraints import CONSTRAINT_DIM
 from networks.attn_3dgcn import Attn3DGcnPointEmbedding
+from networks.cstnet import CstNetSegmenter
 from networks.dgcnn_gn import DGCNGn
 from networks.point_net import PointNetSeg
 from networks.point_net2 import PointNet2Seg
@@ -29,6 +30,7 @@ SEGMENTATION_MODEL_NAMES = (
     "pointmamba",
     "pointnext",
     "pointmlp",
+    "cstnet",
 )
 BASELINE_SEGMENTATION_MODELS = SEGMENTATION_MODEL_NAMES[1:]
 
@@ -64,6 +66,8 @@ def segmentation_model_config(source: Mapping[str, Any] | Any) -> dict[str, Any]
             feature_dim=int(_config_value(source, "feature_dim", 64)),
             norm_type=str(_config_value(source, "norm_type", "ln")),
         )
+    elif model_name == "cstnet":
+        config["cstnet_n_metatype"] = int(_config_value(source, "cstnet_n_metatype", 5))
     else:
         config["baseline_use_constraints"] = bool(
             _config_value(source, "baseline_use_constraints", False)
@@ -255,6 +259,9 @@ def build_segmentation_model(
         raise ValueError("num_classes must be greater than one")
     model_config = segmentation_model_config(config)
     model_name = model_config["model"]
+
+    if model_name == "cstnet":
+        return CstNetSegmenter(num_classes, model_config["cstnet_n_metatype"])
 
     if model_name == "constraint_aware":
         return Stage2SegmentationModel(

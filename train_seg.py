@@ -20,6 +20,7 @@ from functional.wandb_utils import (
     initialize_wandb_run,
     read_wandb_run_id_from_checkpoint,
 )
+from networks.cstnet import add_cstnet_arguments, load_cstnet_weights
 from networks.segmentation_models import (
     DEFAULT_SEGMENTATION_MODEL,
     SEGMENTATION_MODEL_NAMES,
@@ -34,7 +35,7 @@ MODEL_OUTPUT_ROOT = Path("model_trained/seg")
 def segmentation_run_name(model_config: dict[str, object]) -> str:
     model_name = str(model_config["model"])
     if model_name != DEFAULT_SEGMENTATION_MODEL and bool(
-        model_config["baseline_use_constraints"]
+        model_config.get("baseline_use_constraints", False)
     ):
         model_name += "_constraints"
     return model_name
@@ -74,11 +75,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--data_root",
         type=str,
-        default=r"/opt/data/private/data_set/pcd_cstnet2/mfcad_pcd",
-        help="MFCAD++ TXT split root or converted HDF5 shard directory",
+        default="/opt/data/private/data_set/pcd_cstnet2/mfcad_pcd",
+        help="MFCAD++ TXT or HDF5 dataset root for models other than CSTNet",
+    )
+    parser.add_argument(
+        "--data_root_cstnet",
+        type=str,
+        default="/opt/data/private/data_set/pcd_cstnet2/mfcad_pcd_cstnet",
+        help="CSTNet segmentation dataset root with 11-column legacy TXT files",
     )
     parser.add_argument("--data_format", choices=("auto", "txt", "h5"), default="auto",
-                        help="Storage backend; auto prefers HDF5 when shards are present")
+                        help="CSTNet reads 11-column legacy TXT with binary nearby labels; other models support TXT/HDF5")
     parser.add_argument(
         "--label_map", type=str, default=str(DEFAULT_LABEL_MAP),
         help="JSON label metadata used by the dataset and checkpoints",
@@ -153,7 +160,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--wandb_run_name", type=str, default="",
         help="Optional WandB run name; overrides the name derived from --save_name",
     )
-    return parser.parse_args(argv)
+    add_cstnet_arguments(parser)
+    args = parser.parse_args(argv)
+    if args.cstnet_weights and args.model != "cstnet":
+        parser.error("--cstnet_weights requires --model cstnet")
+    return args
 
 
 def log_training_configuration(
@@ -202,14 +213,17 @@ def main(args: argparse.Namespace) -> None:
         and model_config["model"] == DEFAULT_SEGMENTATION_MODEL
     ):
         nvrtc_library = preload_cuda_nvrtc()
-    output_dir, resume_checkpoint = resolve_training_paths(model_config, not args.not_resume)
+    output_dir, resume_checkpoint = resolve_training_paths(
+        model_config, not (args.not_resume or args.cstnet_weights)
+    )
     if rank == 0:
         log_training_configuration(args, device, output_dir)
         if nvrtc_library is not None:
             print(f"CUDA NVRTC: preloaded {nvrtc_library}")
 
+    data_root = args.data_root_cstnet if args.model == "cstnet" else args.data_root
     train_loader, val_loader, test_loader = Stage2SegmentationDataset.create_dataloaders(
-        root=args.data_root,
+        root=data_root,
         batch_size=args.batch_size,
         n_points=args.n_points,
         num_workers=args.workers,
@@ -217,6 +231,7 @@ def main(args: argparse.Namespace) -> None:
         use_npy_cache=args.use_npy_cache,
         distributed=distributed,
         storage_format=args.data_format,
+        cstnet_inputs=args.model == "cstnet",
     )
     statistics_path = Path(args.class_statistics_path)
     if rank == 0:
@@ -238,6 +253,10 @@ def main(args: argparse.Namespace) -> None:
         num_classes=train_loader.dataset.num_classes,
         config=model_config,
     ).to(device)
+    if args.cstnet_weights:
+        load_cstnet_weights(model, args.cstnet_weights)
+        if rank == 0:
+            print(f"Initialized CSTNet segmentation from {args.cstnet_weights}")
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     if rank == 0:
         print(f"segmentation model: {model_config}; parameters={parameter_count:,}")
@@ -270,6 +289,7 @@ def main(args: argparse.Namespace) -> None:
             run_id=wandb_resume_id,
             config={
                 **vars(args),
+                "selected_data_root": data_root,
                 "resolved_wandb_run_name": resolved_run_name,
                 "model_config": model_config,
                 "parameter_count": parameter_count,
@@ -285,7 +305,7 @@ def main(args: argparse.Namespace) -> None:
         model=model,
         optimizer=optimizer,
         train_loader=train_loader,
-        val_loader=test_loader,
+        val_loader=test_loader if test_loader is not None else val_loader,
         class_weights=class_weights,
         label_map=train_loader.dataset.label_map,
         output_dir=output_dir,

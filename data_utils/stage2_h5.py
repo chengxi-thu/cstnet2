@@ -16,10 +16,14 @@ from data_utils.stage1_h5 import (
 )
 
 
-def resolve_storage_format(root, storage_format):
+def resolve_storage_format(root, storage_format, *, cstnet_inputs=False):
     storage_format = str(storage_format).lower()
     if storage_format not in {"auto", "txt", "h5"}:
         raise ValueError("storage_format must be one of: auto, txt, h5")
+    if cstnet_inputs:
+        if storage_format == "h5" or Path(root).is_file():
+            raise ValueError("CSTNet requires a legacy TXT dataset with per-point nearby labels")
+        return "txt"
     if storage_format == "auto":
         return "h5" if discover_stage1_h5_files(root) else "txt"
     return storage_format

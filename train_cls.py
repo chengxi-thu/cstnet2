@@ -30,6 +30,7 @@ from networks.classification_models import (
     classification_model_uses_constraints,
     classification_run_name,
 )
+from networks.cstnet import add_cstnet_arguments, load_cstnet_weights
 from networks.utils import all_metric_cls
 
 
@@ -44,11 +45,13 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--is_sample", action="store_true", default=False)
     parser.add_argument("--local", action="store_true", default=False)
     parser.add_argument("--data_root", type=str, default=None,
-                        help="TXT/HDF5 dataset root; overrides --root_local/--root_sever")
+                        help="TXT/HDF5 dataset root for models other than CSTNet")
+    parser.add_argument("--data_root_cstnet", type=str, default=None,
+                        help="CSTNet classification dataset root with 9-column legacy TXT files")
     parser.add_argument("--data_format", choices=("auto", "txt", "h5"), default="auto",
-                        help="Storage backend; auto prefers HDF5 when shards are present")
-    parser.add_argument("--root_sever", type=str, default=r"/opt/data/private/data_set/pcd_cstnet2/tmcad_pcd_pred")
-    parser.add_argument("--root_local", type=str, default=r"D:\document\DeepLearning\DataSet\pcd_cstnet2\Param20K_Extend")
+                        help="CSTNet reads 9-column legacy TXT with binary nearby labels; other models support TXT/HDF5")
+    parser.add_argument("--root_sever", type=str)
+    parser.add_argument("--root_local", type=str)
 
     parser.add_argument(
         "--model",
@@ -94,11 +97,28 @@ def parse_args(argv: list[str] | None = None):
         default=False,
         help="Load the selected model's existing weight file before training",
     )
-    return parser.parse_args(argv)
+    add_cstnet_arguments(parser)
+    args = parser.parse_args(argv)
+    fallback_root = args.root_local if args.local else args.root_sever
+    if args.data_root is None:
+        args.data_root = fallback_root or (
+            r"D:\document\DeepLearning\DataSet\pcd_cstnet2\Param20K_Extend" if args.local
+            else "/opt/data/private/data_set/pcd_cstnet2/tmcad_pcd_pred"
+        )
+    if args.data_root_cstnet is None:
+        args.data_root_cstnet = fallback_root or (
+            r"F:\DataSet\tmcad_pcd_cstnet" if args.local
+            else "/root/my_data/data_set/pcd_cstnet2/tmcad_pcd_cstnet"
+        )
+    if args.cstnet_weights and (args.model != "cstnet" or args.resume):
+        parser.error("--cstnet_weights requires --model cstnet and a fresh run without --resume")
+    return args
 
 
 def constraints_from_dataset_batch(data, device: torch.device) -> torch.Tensor:
     """Assemble constraints already stored in the selected point-cloud files."""
+    if len(data) == 3:  # CSTNet dataset supplies its original packed inputs.
+        return data[2].float().to(device, non_blocking=True)
     return ground_truth_constraints_to_tensor(
         pmt=data[2].to(device, non_blocking=True),
         direction=data[3].float().to(device, non_blocking=True),
@@ -225,7 +245,7 @@ def restore_classification_training_state(
 def main(args):
     os.makedirs("model_trained", exist_ok=True)
 
-    data_root = args.data_root or (args.root_local if args.local else args.root_sever)
+    data_root = args.data_root_cstnet if args.model == "cstnet" else args.data_root
     train_loader, test_loader = Stage2ClassificationDataset.create_dataloaders(
         root=data_root,
         bs=args.bs,
@@ -235,6 +255,7 @@ def main(args):
         test_ratio=args.test_ratio,
         split_seed=args.split_seed,
         storage_format=args.data_format,
+        cstnet_inputs=args.model == "cstnet",
     )
     n_classes = train_loader.dataset.n_classes()
     class_names = [f"class_{index}" for index in range(n_classes)]
@@ -252,6 +273,8 @@ def main(args):
         nvrtc_library = preload_cuda_nvrtc()
 
     model = build_classification_model(n_classes, model_config).to(device)
+    if args.cstnet_weights:
+        load_cstnet_weights(model, args.cstnet_weights)
     save_stem = args.save_name
     if args.save_name == "stage2_cls" or args.save_name == "stage2_cls_cstpred":
         save_stem = f"{args.save_name}_{classification_run_name(model_config)}"
@@ -301,6 +324,8 @@ def main(args):
                     "WARNING: resume checkpoint has no wandb_run_id; "
                     "a new WandB Run will be created"
                 )
+    elif args.cstnet_weights:
+        print(f"Initialized CSTNet classification from {args.cstnet_weights}")
     else:
         print(f"checkpoint: none provided; starting a new training run ({save_path})")
 
@@ -315,7 +340,7 @@ def main(args):
             "parameter_count": parameter_count,
             "num_classes": n_classes,
             "class_names": class_names,
-            "data_root": data_root,
+            "selected_data_root": data_root,
             "constraint_storage": "point_file_fields",
             "device": str(device),
         },

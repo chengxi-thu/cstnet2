@@ -9,6 +9,7 @@ import torch.nn.functional as F
 
 from functional.constraints import CONSTRAINT_DIM
 from networks.attn_3dgcn import Attn3DGcnPointEmbedding
+from networks.cstnet import CstNetClassifier
 from networks.dgcnn_gn import DGCNNEncoderGn
 from networks.point_net import PointNet
 from networks.point_net2 import PointNet2Cls
@@ -30,6 +31,7 @@ CLASSIFICATION_MODEL_NAMES = (
     "pointmamba",
     "pointnext",
     "pointmlp",
+    "cstnet",
 )
 BASELINE_CLASSIFICATION_MODELS = CLASSIFICATION_MODEL_NAMES[1:]
 
@@ -87,6 +89,8 @@ def classification_model_config(
                 _config_value(source, "use_stats_token", False)
             ),
         )
+    elif model_name == "cstnet":
+        config["cstnet_n_metatype"] = int(_config_value(source, "cstnet_n_metatype", 5))
     else:
         config["baseline_use_constraints"] = _as_bool(
             _config_value(source, "baseline_use_constraints", False)
@@ -95,7 +99,7 @@ def classification_model_config(
 
 
 def classification_model_uses_constraints(config: Mapping[str, Any]) -> bool:
-    return config["model"] == DEFAULT_CLASSIFICATION_MODEL or bool(
+    return config["model"] in (DEFAULT_CLASSIFICATION_MODEL, "cstnet") or bool(
         config.get("baseline_use_constraints", False)
     )
 
@@ -286,6 +290,9 @@ def build_classification_model(
         raise ValueError("num_classes must be greater than one")
     model_config = classification_model_config(config)
     model_name = model_config["model"]
+
+    if model_name == "cstnet":
+        return CstNetClassifier(num_classes, model_config["cstnet_n_metatype"])
 
     if model_name == DEFAULT_CLASSIFICATION_MODEL:
         return CstNetStage2Classifier(
