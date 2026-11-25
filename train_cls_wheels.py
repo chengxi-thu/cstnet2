@@ -82,7 +82,7 @@ def parse_args():
 
     parser.add_argument("--cstnet_n_metatype", type=int, choices=(4, 5), default=5,
                         help="Number of primitive channels in the original CSTNet weights")
-    parser.add_argument("--swanlab_project", "--wandb_project", default="cstnet2-s2-wheel")
+    parser.add_argument("--swanlab_project", "--wandb_project", default="cstnet2-s2-wheel-v2")
     parser.add_argument("--swanlab_workspace", "--wandb_entity", default="",
                         help="SwanLab workspace (defaults to your personal workspace)")
     parser.add_argument("--swanlab_run_name", "--wandb_run_name", default="",
