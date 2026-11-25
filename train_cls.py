@@ -13,7 +13,7 @@ from tqdm import tqdm
 from colorama import init
 
 from data_utils.classification_dataset import Stage2ClassificationDataset
-from functional.constraints import constraints_to_tensor, ground_truth_constraints_to_tensor
+from functional.constraints import ground_truth_constraints_to_tensor
 from functional.checkpoint_io import safe_torch_save
 from functional.cuda_runtime import preload_cuda_nvrtc
 from functional.swanlab_utils import (
@@ -156,26 +156,20 @@ def classification_loss(model, xyz, constraints, target, args, model_config):
     return output["log_probs"], loss
 
 
-def classification_batch(data, device, use_constraints, constraint_extractor):
+def classification_batch(data, device, use_constraints):
     xyz = data[0].float().to(device, non_blocking=True)
     target = data[1].long().to(device, non_blocking=True)
-    constraints = None
-    if constraint_extractor is not None:
-        constraints = constraints_to_tensor(constraint_extractor(xyz))
-    elif use_constraints:
-        constraints = constraints_from_dataset_batch(data, device)
+    constraints = constraints_from_dataset_batch(data, device) if use_constraints else None
     return xyz, target, constraints
 
 
-def evaluate(model, loader, device, use_constraints, constraint_extractor=None):
+def evaluate(model, loader, device, use_constraints):
     model.eval()
     all_preds, all_labels = [], []
     total_loss = 0.0
     with torch.no_grad():
         for data in tqdm(loader, total=len(loader), desc="eval"):
-            xyz, target, constraints = classification_batch(
-                data, device, use_constraints, constraint_extractor
-            )
+            xyz, target, constraints = classification_batch(data, device, use_constraints)
             pred = model(xyz, constraints)
             total_loss += F.nll_loss(pred, target).item()
             all_preds.append(pred.cpu().numpy())
@@ -265,8 +259,7 @@ def main(args):
     train_classification(args, train_loader, test_loader, data_root, save_stem)
 
 
-def train_classification(args, train_loader, test_loader, data_root, save_stem,
-                         output_dir="model_trained", constraint_extractor=None):
+def train_classification(args, train_loader, test_loader, data_root, save_stem, output_dir="model_trained"):
     os.makedirs(output_dir, exist_ok=True)
     n_classes = train_loader.dataset.n_classes()
     class_names = [f"class_{index}" for index in range(n_classes)]
@@ -351,7 +344,7 @@ def train_classification(args, train_loader, test_loader, data_root, save_stem,
             "num_classes": n_classes,
             "class_names": class_names,
             "selected_data_root": data_root,
-            "constraint_storage": "frozen_stage1" if constraint_extractor is not None else "point_file_fields",
+            "constraint_storage": "point_file_fields",
             "device": str(device),
         },
     )
@@ -368,9 +361,7 @@ def train_classification(args, train_loader, test_loader, data_root, save_stem,
             total=len(train_loader),
             desc=f"train {epoch + 1}/{args.epoch}",
         ):
-            xyz, target, constraints = classification_batch(
-                data, device, use_constraints, constraint_extractor
-            )
+            xyz, target, constraints = classification_batch(data, device, use_constraints)
 
             optimizer.zero_grad(set_to_none=True)
             pred, loss = classification_loss(
@@ -401,7 +392,6 @@ def train_classification(args, train_loader, test_loader, data_root, save_stem,
             test_loader,
             device,
             use_constraints,
-            constraint_extractor,
         )
         train_loss = running_loss / max(len(train_loader), 1)
 

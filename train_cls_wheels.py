@@ -22,22 +22,19 @@ from data_utils.constraint_dataset_common import (
     split_constraint_columns,
 )
 from functional.checkpoint_io import safe_json_save
-from gen_cst_pred import Stage1Predictor
 from networks.classification_models import (
     classification_model_config,
     classification_model_uses_constraints,
     classification_run_name,
 )
-from train_cls import add_classification_training_arguments, train_classification
+from train_cls import train_classification
 
 
-DATA_ROOT = r"/opt/data/private/data_set/pcd_cstnet2/tmcad_pcd_cstnet"
-DATA_ROOT_CSTNET = r"/opt/data/private/data_set/pcd_cstnet2/tmcad_pcd"
 SPLIT_SEED = 2026
 TEST_RATIO = 0.2
 
 
-def parse_args(argv=None):
+def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--model",
@@ -56,17 +53,44 @@ def parse_args(argv=None):
         default="pointnet",
         help="Wheel classification architecture (default: %(default)s)",
     )
-    parser.add_argument("--baseline_use_constraints", action="store_true", default=False, 
+    parser.add_argument("--baseline_use_constraints", action="store_true", default=False,
                         help="Add 12D constraints to XYZ for baseline models. CSTNet and constraint_aware always use constraints.")
-    add_classification_training_arguments(parser)
-    parser.add_argument("--data_root", default=DATA_ROOT,
+    parser.add_argument("--data_root", default="/opt/data/private/data_set/pcd_cstnet2/tmcad_pcd_cstnet",
                         help="12-column wheel dataset for constraint_aware and other baselines (default: %(default)s)")
-    parser.add_argument("--data_root_cstnet", default=DATA_ROOT_CSTNET,
+    parser.add_argument("--data_root_cstnet", default="/opt/data/private/data_set/pcd_cstnet2/tmcad_pcd",
                         help="9-column wheel dataset for original CSTNet (default: %(default)s)")
     parser.add_argument("--output_dir", default="model_trained/wheels_binary")
-    parser.add_argument("--stage1_checkpoint",
-                        help="Optionally predict 12D constraints with frozen Stage 1 instead of reading file fields")
-    args = parser.parse_args(argv)
+
+    parser.add_argument("--bs", "--batch_size", dest="bs", type=int, default=20)
+    parser.add_argument("--epoch", type=int, default=50)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--decay_rate", type=float, default=1e-4)
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--n_points", "--n_point", dest="n_points", type=int, default=2048)
+    parser.add_argument("--resume", action="store_true", default=False,
+                        help="Resume existing wheel experiments and start any missing pairs")
+
+    parser.add_argument("--stage2_norm", choices=["ln", "bn"], default="ln")
+    parser.add_argument("--label_smoothing", type=float, default=0.05)
+    parser.add_argument("--aux_loss_weight", type=float, default=0.1)
+    parser.add_argument("--token_dim", type=int, default=256)
+    parser.add_argument("--transformer_layers", type=int, default=3)
+    parser.add_argument("--transformer_heads", type=int, default=8)
+    parser.add_argument("--token_dropout", type=float, default=0.1)
+    parser.add_argument("--stream_dropout", type=float, default=0.1)
+    parser.add_argument("--use_stats_token", action="store_true", default=False)
+
+    parser.add_argument("--cstnet_n_metatype", type=int, choices=(4, 5), default=5,
+                        help="Number of primitive channels in the original CSTNet weights")
+    parser.add_argument("--cstnet_weights", metavar="PATH",
+                        help="Start a new CSTNet run from an original classification or segmentation state_dict")
+    parser.add_argument("--swanlab_project", "--wandb_project", default="cstnet2-s2-wheel")
+    parser.add_argument("--swanlab_workspace", "--wandb_entity", default="",
+                        help="SwanLab workspace (defaults to your personal workspace)")
+    parser.add_argument("--swanlab_run_name", "--wandb_run_name", default="",
+                        help="Prefix for the generated SwanLab experiment names")
+
+    args = parser.parse_args()
     if args.epoch < 1:
         parser.error("--epoch must be positive")
     if args.cstnet_weights and (args.model != "cstnet" or args.resume):
@@ -138,8 +162,7 @@ def main(args):
     root = Path(args.data_root_cstnet if cstnet_inputs else args.data_root)
     splits = wheel_splits(root)
     config = classification_model_config(args)
-    uses_12d_constraints = not cstnet_inputs and classification_model_uses_constraints(config)
-    use_stored_constraints = uses_12d_constraints and not args.stage1_checkpoint
+    use_stored_constraints = not cstnet_inputs and classification_model_uses_constraints(config)
     model_name = classification_run_name(config)
     output = Path(args.output_dir) / model_name
     output.mkdir(parents=True, exist_ok=True)
@@ -157,11 +180,6 @@ def main(args):
             raise ValueError(f"wheel file lists or constraint source differ from the saved run in {output}; use a fresh --output_dir")
     elif not safe_json_save(manifest, manifest_file):
         raise OSError(f"could not save the wheel split manifest to {manifest_file}")
-
-    extract_constraints = None
-    if uses_12d_constraints and args.stage1_checkpoint:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        extract_constraints = Stage1Predictor(args.stage1_checkpoint, device).predict_batch
 
     results = {}
     offsets = [name for name in splits if name != "coaxis"]
@@ -190,7 +208,7 @@ def main(args):
         metrics = train_classification(
             run_args, DataLoader(train_set, shuffle=True, **loader_kwargs),
             DataLoader(test_set, shuffle=False, **loader_kwargs),
-            str(root), stem, output, constraint_extractor=extract_constraints,
+            str(root), stem, output,
         )
         results[offset] = {"train_samples": len(train_set), "test_samples": len(test_set), **metrics}
         if not safe_json_save(results, output / "results.json"):

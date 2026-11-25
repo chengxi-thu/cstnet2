@@ -721,8 +721,8 @@ All other models read `F:\DataSet\cstnet2\wheels_pcd` (`--data_root`).
 `constraint_aware` uses the primitive type, direction, dimension and location
 stored in those 12-column files. Baselines use XYZ by default. Pass
 `--baseline_use_constraints` to also supply the same 12D per-point constraints.
-To predict those constraints online, pass a frozen geometry or joint checkpoint
-with `--stage1_checkpoint`.
+To compare ground-truth and predicted constraints, run the same command on each
+dataset. Training and testing both use the constraint values stored in the selected files.
 
 Each pair gets its own classifier, optimizer, SwanLab run and last/best weights.
 `model_trained/wheels_binary/<model-run-name>/` also contains the file lists

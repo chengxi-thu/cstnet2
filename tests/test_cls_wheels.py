@@ -36,22 +36,24 @@ class WheelClassificationTest(unittest.TestCase):
                 ("pointnet", False, 12, 0), ("pointnet", True, 12, 12),
             ):
                 with self.subTest(model=model, baseline_use_constraints=flag):
-                    argv = ["--model", model, "--data_root", str(roots[12]), "--data_root_cstnet", str(roots[9]),
-                            "--output_dir", str(root / "out"), "--workers", "0", "--n_points", "4"]
+                    command = ["train_cls_wheels.py", "--model", model, "--data_root", str(roots[12]),
+                               "--data_root_cstnet", str(roots[9]), "--output_dir", str(root / "out"),
+                               "--workers", "0", "--n_points", "4"]
                     if flag:
-                        argv.append("--baseline_use_constraints")
+                        command.append("--baseline_use_constraints")
+                    with patch("sys.argv", command):
+                        args = parse_args()
                     with patch("train_cls_wheels.train_classification", return_value={}) as train:
-                        main(parse_args(argv))
+                        main(args)
                     self.assertEqual(train.call_count, 10)
                     for call in train.call_args_list:
                         args, train_loader, test_loader, selected_root, *_ = call.args
                         uses_constraints = classification_model_uses_constraints(classification_model_config(args))
                         self.assertEqual(uses_constraints, bool(channels))
                         self.assertEqual(Path(selected_root), roots[columns])
-                        self.assertIsNone(call.kwargs["constraint_extractor"])
                         for loader in (train_loader, test_loader):
                             data = next(iter(loader))
-                            xyz, _, attributes = classification_batch(data, torch.device("cpu"), uses_constraints, None)
+                            xyz, _, attributes = classification_batch(data, torch.device("cpu"), uses_constraints)
                             self.assertTrue((xyz[..., 0] == columns).all())
                             if channels == 0:
                                 self.assertEqual(len(data), 2)
@@ -86,7 +88,7 @@ class WheelClassificationTest(unittest.TestCase):
                 self.assertTrue(set(train.samples).isdisjoint(test.samples))
                 self.assertEqual({p.parent.name for p, label in train.samples if label == 1}, {name})
 
-    def test_legacy_wheel_inputs_for_xyz_cstnet_and_stage1(self):
+    def test_legacy_wheel_inputs_for_xyz_and_cstnet(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "wheel.txt"
             cloud = np.zeros((32, 9), dtype=np.float32)
@@ -103,13 +105,18 @@ class WheelClassificationTest(unittest.TestCase):
             self.assertEqual(features.shape, (16, 10))
             np.testing.assert_array_equal(features[:, [4, 9]], np.ones((16, 2)))
 
-            data = (torch.from_numpy(xyz)[None], torch.tensor([label]))
-            def predict(points):
-                return {
-                    "primitive_type": torch.nn.functional.one_hot(torch.zeros_like(points[..., 0]).long(), 5),
-                    "direction": torch.zeros_like(points), "dimension": torch.zeros_like(points[..., :1]),
-                    "location": torch.zeros_like(points),
-                }
-
-            _, _, packed = classification_batch(data, torch.device("cpu"), True, predict)
-            self.assertEqual(tuple(packed.shape), (1, 16, 12))
+    def test_same_xyz_uses_constraints_from_each_selected_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for source, radius in (("gt", 2.5), ("predicted", 1.75)):
+                with self.subTest(source=source):
+                    path = Path(tmp) / f"{source}.txt"
+                    rows = np.zeros((4, 12), dtype=np.float32)
+                    rows[:, 3] = 1  # cylinder
+                    rows[:, 6] = 1  # z axis
+                    rows[:, 7] = radius
+                    np.savetxt(path, rows)
+                    splits = {"coaxis": {"test": [path]}, "offset-1": {"test": []}}
+                    dataset = WheelPairDataset(splits, "offset-1", "test", 4, False, use_stored_constraints=True)
+                    data = next(iter(torch.utils.data.DataLoader(dataset, batch_size=1)))
+                    _, _, constraints = classification_batch(data, torch.device("cpu"), True)
+                    torch.testing.assert_close(constraints[..., 8], torch.full((1, 4), radius))
