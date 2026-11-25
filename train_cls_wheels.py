@@ -82,8 +82,6 @@ def parse_args():
 
     parser.add_argument("--cstnet_n_metatype", type=int, choices=(4, 5), default=5,
                         help="Number of primitive channels in the original CSTNet weights")
-    parser.add_argument("--cstnet_weights", metavar="PATH",
-                        help="Start a new CSTNet run from an original classification or segmentation state_dict")
     parser.add_argument("--swanlab_project", "--wandb_project", default="cstnet2-s2-wheel")
     parser.add_argument("--swanlab_workspace", "--wandb_entity", default="",
                         help="SwanLab workspace (defaults to your personal workspace)")
@@ -93,8 +91,6 @@ def parse_args():
     args = parser.parse_args()
     if args.epoch < 1:
         parser.error("--epoch must be positive")
-    if args.cstnet_weights and (args.model != "cstnet" or args.resume):
-        parser.error("--cstnet_weights requires --model cstnet and a fresh run without --resume")
     if args.model in ("cstnet", "constraint_aware"):
         args.baseline_use_constraints = False  # Both architectures always use their own constraint representation.
     return args

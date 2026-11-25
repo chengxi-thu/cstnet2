@@ -256,10 +256,12 @@ def main(args):
     save_stem = args.save_name
     if save_stem in {"stage2_cls", "stage2_cls_cstpred"}:
         save_stem += "_" + classification_run_name(classification_model_config(args))
-    train_classification(args, train_loader, test_loader, data_root, save_stem)
+    train_classification(args, train_loader, test_loader, data_root, save_stem,
+                         initial_cstnet_weights=args.cstnet_weights)
 
 
-def train_classification(args, train_loader, test_loader, data_root, save_stem, output_dir="model_trained"):
+def train_classification(args, train_loader, test_loader, data_root, save_stem, output_dir="model_trained",
+                         *, initial_cstnet_weights=None):
     os.makedirs(output_dir, exist_ok=True)
     n_classes = train_loader.dataset.n_classes()
     class_names = [f"class_{index}" for index in range(n_classes)]
@@ -277,8 +279,8 @@ def train_classification(args, train_loader, test_loader, data_root, save_stem, 
         nvrtc_library = preload_cuda_nvrtc()
 
     model = build_classification_model(n_classes, model_config).to(device)
-    if args.cstnet_weights:
-        load_cstnet_weights(model, args.cstnet_weights)
+    if initial_cstnet_weights:
+        load_cstnet_weights(model, initial_cstnet_weights)
     save_path = os.path.join(output_dir, f"{save_stem}.pth")
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     print(f"classification model: {model_config}; parameters={parameter_count:,}")
@@ -327,8 +329,8 @@ def train_classification(args, train_loader, test_loader, data_root, save_stem, 
                     "WARNING: resume checkpoint has no swanlab_run_id; "
                     "a new SwanLab Run will be created"
                 )
-    elif args.cstnet_weights:
-        print(f"Initialized CSTNet classification from {args.cstnet_weights}")
+    elif initial_cstnet_weights:
+        print(f"Initialized CSTNet classification from {initial_cstnet_weights}")
     else:
         print(f"checkpoint: none provided; starting a new training run ({save_path})")
 
