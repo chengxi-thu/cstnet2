@@ -444,3 +444,13 @@ python train_cls_ablation.py --experiments only_location only_dimension --bs 10
 python train_seg.py --model=pointmlp --batch_size=10 --epochs=70 --baseline_use_constraints --not_resume 
 
 python train_seg.py --model=pointmlp --batch_size=10 --epochs=70 --baseline_use_constraints --not_resume --save_name=stage2_seg_cstpred --data_root=/opt/data/private/data_set/pcd_cstnet2/mfcad_pcd_pred
+
+
+// 2026.11.25 wheel
+python train_cls_wheels.py
+
+
+
+
+
+
