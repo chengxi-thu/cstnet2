@@ -55,9 +55,9 @@ def parse_args():
     )
     parser.add_argument("--baseline_use_constraints", action="store_true", default=False,
                         help="Add 12D constraints to XYZ for baseline models. CSTNet and constraint_aware always use constraints.")
-    parser.add_argument("--data_root", default="/opt/data/private/data_set/pcd_cstnet2/tmcad_pcd_cstnet",
+    parser.add_argument("--data_root", default="/opt/data/private/data_set/pcd_cstnet2/wheels_pcd",
                         help="12-column wheel dataset for constraint_aware and other baselines (default: %(default)s)")
-    parser.add_argument("--data_root_cstnet", default="/opt/data/private/data_set/pcd_cstnet2/tmcad_pcd",
+    parser.add_argument("--data_root_cstnet", default="/opt/data/private/data_set/pcd_cstnet2/wheels_pcd_cstnet",
                         help="9-column wheel dataset for original CSTNet (default: %(default)s)")
     parser.add_argument("--output_dir", default="model_trained/wheels_binary")
 
