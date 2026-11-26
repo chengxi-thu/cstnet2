@@ -50,7 +50,7 @@ def parse_args():
             "pointmlp",
             "cstnet",
         ],
-        default="pointnet2",
+        default="pointnet",
         help="Wheel classification architecture (default: %(default)s)",
     )
     parser.add_argument("--baseline_use_constraints", action="store_true", default=False,
