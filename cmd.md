@@ -451,6 +451,15 @@ python train_cls_wheels.py
 
 
 
+python train_cls_wheels.py --model=pointnet2 && \
+python train_cls_wheels.py --model=constraint_aware && \
+python train_cls_wheels.py --model=dgcnn && \
+python train_cls_wheels.py --model=attn3dgcn && \
+python train_cls_wheels.py --model=pointtransformer && \
+python train_cls_wheels.py --model=pointmamba && \
+python train_cls_wheels.py --model=pointnext && \
+python train_cls_wheels.py --model=pointmlp && \
+python train_cls_wheels.py --model=cstnet
 
 
 
