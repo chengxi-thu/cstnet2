@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 
 CONSTRAINT_POINT_COLUMNS = 12
+CSTNET_POINT_COLUMNS = (8, 9)  # The trailing primitive instance ID is optional.
 VALID_DIRECTION_PRIMITIVES = (0, 1, 2)
 VALID_DIMENSION_PRIMITIVES = (1, 2, 3)
 
@@ -63,7 +64,7 @@ def load_constraint_point_file(
     *,
     task_name: str,
     allow_extra_columns: bool = False,
-    expected_columns: int = CONSTRAINT_POINT_COLUMNS,
+    expected_columns: int | tuple[int, ...] = CONSTRAINT_POINT_COLUMNS,
 ) -> np.ndarray:
     """Load the requested point layout, optionally discarding later columns."""
     path = Path(path)
@@ -76,23 +77,15 @@ def load_constraint_point_file(
             f"{path}, got shape {point_set.shape}"
         )
     column_count = point_set.shape[1]
-    valid_column_count = (
-        column_count >= expected_columns
-        if allow_extra_columns
-        else column_count == expected_columns
-    )
-    if not valid_column_count:
-        expectation = (
-            f"at least {expected_columns}"
-            if allow_extra_columns
-            else str(expected_columns)
-        )
+    widths = (expected_columns,) if isinstance(expected_columns, int) else expected_columns
+    if allow_extra_columns and column_count >= min(widths):
+        point_set = point_set[:, :min(widths)]
+    elif column_count not in widths:
+        expectation = f"at least {min(widths)}" if allow_extra_columns else " or ".join(map(str, widths))
         raise ValueError(
             f"expected {expectation} columns in {task_name} sample "
             f"{path}, got shape {point_set.shape}"
         )
-    if allow_extra_columns and column_count > expected_columns:
-        point_set = point_set[:, :expected_columns]
     if not np.isfinite(point_set).all():
         raise ValueError(f"non-finite value found in {task_name} sample: {path}")
     return point_set
@@ -100,8 +93,8 @@ def load_constraint_point_file(
 
 def cstnet_attributes(core: np.ndarray, *, source: str | Path = "CSTNet input") -> np.ndarray:
     """Pack the recorded direction, binary nearby label and primitive from legacy rows."""
-    if core.ndim != 2 or core.shape[1] != 9:
-        raise ValueError(f"{source}: CSTNet requires 9 point columns including the nearby label")
+    if core.ndim != 2 or core.shape[1] not in CSTNET_POINT_COLUMNS:
+        raise ValueError(f"{source}: CSTNet requires 8 or 9 point columns including the nearby label")
     raw_type = core[:, 3]
     primitive = raw_type.astype(np.int64)
     if not np.array_equal(primitive, raw_type) or np.any((primitive < 0) | (primitive >= 5)):

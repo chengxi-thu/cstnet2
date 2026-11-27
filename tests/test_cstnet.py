@@ -56,6 +56,7 @@ class CstNetCompatibilityTest(unittest.TestCase):
 
     def test_training_datasets_require_recorded_binary_edge_labels(self):
         for dataset_type, width, subdir in (
+            (Stage2ClassificationDataset, 8, "test/gear"),
             (Stage2ClassificationDataset, 9, "test/gear"),
             (Stage2SegmentationDataset, 11, "val"),
         ):
@@ -82,7 +83,8 @@ class CstNetCompatibilityTest(unittest.TestCase):
                     dataset[0]
                 # Even a dimension containing only 0/1 is not a recorded edge label.
                 np.savetxt(sample, np.zeros((4, width + 3), dtype=np.float32))
-                with self.assertRaisesRegex(ValueError, f"expected {width} columns"):
+                expected_width = "8 or 9" if dataset_type is Stage2ClassificationDataset else str(width)
+                with self.assertRaisesRegex(ValueError, f"expected {expected_width} columns"):
                     dataset[0]
                 with self.assertRaisesRegex(ValueError, "legacy TXT"):
                     dataset_type(root, split, storage_format="h5", cstnet_inputs=True)

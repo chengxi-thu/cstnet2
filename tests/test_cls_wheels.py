@@ -28,7 +28,8 @@ class WheelClassificationTest(unittest.TestCase):
                 for name in ["coaxis", *(f"offset-{i}" for i in range(1, 11))]:
                     (directory / name).mkdir(parents=True)
                     for i in range(2):
-                        np.savetxt(directory / name / f"{i}.txt", cloud)
+                        rows = cloud[:, :8] if columns == 9 and i == 0 else cloud
+                        np.savetxt(directory / name / f"{i}.txt", rows)
 
             for model, flag, columns, channels in (
                 ("cstnet", False, 9, 10), ("cstnet", True, 9, 10),
@@ -104,6 +105,11 @@ class WheelClassificationTest(unittest.TestCase):
             self.assertEqual(label, 0)
             self.assertEqual(features.shape, (16, 10))
             np.testing.assert_array_equal(features[:, [4, 9]], np.ones((16, 2)))
+            np.savetxt(path, cloud[:, :8])
+            short_xyz, short_label, short_features = WheelPairDataset(splits, "offset-1", "test", 16, True)[0]
+            np.testing.assert_array_equal(short_xyz, xyz_again)
+            self.assertEqual(short_label, label)
+            np.testing.assert_array_equal(short_features, features)
 
     def test_same_xyz_uses_constraints_from_each_selected_file(self):
         with tempfile.TemporaryDirectory() as tmp:

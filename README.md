@@ -715,8 +715,9 @@ python train_cls_wheels.py --model cstnet
 python train_cls_wheels.py --model constraint_aware
 ```
 
-CSTNet reads the nine-column files in `F:\DataSet\cstnet2\wheels_pcd_cstnet`
-(`--data_root_cstnet`) for direction, nearby flag and primitive type.
+CSTNet reads XYZ, primitive type, three direction components and a binary
+nearby flag from the eight columns in `--data_root_cstnet`. Legacy files may also
+include a ninth column containing the primitive instance ID.
 All other models read `F:\DataSet\cstnet2\wheels_pcd` (`--data_root`).
 `constraint_aware` uses the primitive type, direction, dimension and location
 stored in those 12-column files. Baselines use XYZ by default. Pass

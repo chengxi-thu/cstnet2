@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from data_utils.constraint_dataset_common import (
     CONSTRAINT_POINT_COLUMNS,
+    CSTNET_POINT_COLUMNS,
     cstnet_attributes,
     discover_txt_files,
     load_constraint_point_file,
@@ -58,7 +59,7 @@ def parse_args():
     parser.add_argument("--data_root", default="/opt/data/private/data_set/pcd_cstnet2/wheel_v4/wheels_pcd",  # -------------
                         help="12-column wheel dataset for constraint_aware and other baselines (default: %(default)s)")
     parser.add_argument("--data_root_cstnet", default="/opt/data/private/data_set/pcd_cstnet2/wheel_v4/wheels_pcd_cstnet",  # -------------
-                        help="9-column wheel dataset for original CSTNet (default: %(default)s)")
+                        help="8- or 9-column wheel dataset for original CSTNet (default: %(default)s)")
     parser.add_argument("--output_dir", default="model_trained/wheels_binary_v4")  # -------------
 
     parser.add_argument("--bs", "--batch_size", dest="bs", type=int, default=20)
@@ -136,7 +137,7 @@ class WheelPairDataset(Dataset):
         path, label = self.samples[index]
         columns = 3
         if self.cstnet_inputs:
-            columns = 9
+            columns = CSTNET_POINT_COLUMNS
         elif self.use_stored_constraints:
             columns = CONSTRAINT_POINT_COLUMNS
         cloud = load_constraint_point_file(

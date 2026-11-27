@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader, Dataset, RandomSampler
 
 from data_utils.constraint_dataset_common import (
     CONSTRAINT_POINT_COLUMNS,
+    CSTNET_POINT_COLUMNS,
     cstnet_attributes,
     discover_txt_files,
     load_constraint_point_file,
@@ -315,7 +316,7 @@ class Stage2ClassificationDataset(Dataset):
             else load_constraint_point_file(
                 path,
                 task_name="CSTNet classification (with nearby labels)" if self.cstnet_inputs else "Stage 2 classification",
-                expected_columns=9 if self.cstnet_inputs else CONSTRAINT_POINT_COLUMNS,
+                expected_columns=CSTNET_POINT_COLUMNS if self.cstnet_inputs else CONSTRAINT_POINT_COLUMNS,
             )
         )
         if self.cstnet_inputs:

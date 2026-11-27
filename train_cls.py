@@ -83,9 +83,9 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--data_root", type=str, default=None,
                         help="TXT/HDF5 dataset root for models other than CSTNet")
     parser.add_argument("--data_root_cstnet", type=str, default=None,
-                        help="CSTNet classification dataset root with 9-column legacy TXT files")
+                        help="CSTNet classification dataset root with 8- or 9-column TXT files")
     parser.add_argument("--data_format", choices=("auto", "txt", "h5"), default="auto",
-                        help="CSTNet reads 9-column legacy TXT with binary nearby labels; other models support TXT/HDF5")
+                        help="CSTNet reads 8- or 9-column TXT with binary nearby labels; other models support TXT/HDF5")
     parser.add_argument("--root_sever", type=str)
     parser.add_argument("--root_local", type=str)
     parser.add_argument("--save_name", type=str, default="stage2_cls_cstpred")
