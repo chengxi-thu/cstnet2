@@ -452,14 +452,43 @@ python train_cls_wheels.py
 
 
 python train_cls_wheels.py --model=pointnet2 && \
-python train_cls_wheels.py --model=constraint_aware && \
+python train_cls_wheels.py --model=constraint_aware --bs=10 && \
 python train_cls_wheels.py --model=dgcnn && \
 python train_cls_wheels.py --model=attn3dgcn && \
 python train_cls_wheels.py --model=pointtransformer && \
 python train_cls_wheels.py --model=pointmamba && \
 python train_cls_wheels.py --model=pointnext && \
+python train_cls_wheels.py --model=pointmlp --bs=10 && \
+python train_cls_wheels.py --model=cstnet --bs=10
+
+# 1
+python train_cls_wheels.py --model=constraint_aware --bs=10 && \
 python train_cls_wheels.py --model=pointmlp && \
 python train_cls_wheels.py --model=cstnet
 
+# 2
+python train_cls_wheels.py --model=dgcnn && \
+python train_cls_wheels.py --model=attn3dgcn && \
+python train_cls_wheels.py --model=pointtransformer && \
+python train_cls_wheels.py --model=pointmamba && \
+python train_cls_wheels.py --model=pointnext
 
 
+
+// 2026.11.27 
+
+// 4090 48G
+python train_cls_wheels.py --model=constraint_aware && \
+python train_cls_wheels.py --model=pointtransformer && \
+python train_cls_wheels.py --model=pointnet
+
+// 24G
+python train_cls_wheels.py --model=pointmlp && \
+python train_cls_wheels.py --model=attn3dgcn && \
+python train_cls_wheels.py --model=dgcnn
+
+// 24G
+python train_cls_wheels.py --model=cstnet && \
+python train_cls_wheels.py --model=pointmamba && \
+python train_cls_wheels.py --model=pointnet2 && \
+python train_cls_wheels.py --model=pointnext

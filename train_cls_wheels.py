@@ -55,11 +55,11 @@ def parse_args():
     )
     parser.add_argument("--baseline_use_constraints", action="store_true", default=False,
                         help="Add 12D constraints to XYZ for baseline models. CSTNet and constraint_aware always use constraints.")
-    parser.add_argument("--data_root", default="/opt/data/private/data_set/pcd_cstnet2/wheel_v2/wheels_pcd",  # -------------
+    parser.add_argument("--data_root", default="/opt/data/private/data_set/pcd_cstnet2/wheel_v4/wheels_pcd",  # -------------
                         help="12-column wheel dataset for constraint_aware and other baselines (default: %(default)s)")
-    parser.add_argument("--data_root_cstnet", default="/opt/data/private/data_set/pcd_cstnet2/wheel_v2/wheels_pcd_cstnet",  # -------------
+    parser.add_argument("--data_root_cstnet", default="/opt/data/private/data_set/pcd_cstnet2/wheel_v4/wheels_pcd_cstnet",  # -------------
                         help="9-column wheel dataset for original CSTNet (default: %(default)s)")
-    parser.add_argument("--output_dir", default="model_trained/wheels_binary_v2")  # -------------
+    parser.add_argument("--output_dir", default="model_trained/wheels_binary_v4")  # -------------
 
     parser.add_argument("--bs", "--batch_size", dest="bs", type=int, default=20)
     parser.add_argument("--epoch", type=int, default=50)
@@ -82,7 +82,7 @@ def parse_args():
 
     parser.add_argument("--cstnet_n_metatype", type=int, choices=(4, 5), default=5,
                         help="Number of primitive channels in the original CSTNet weights")
-    parser.add_argument("--swanlab_project", "--wandb_project", default="cstnet2-s2-wheel-v2")  # -------------
+    parser.add_argument("--swanlab_project", "--wandb_project", default="cstnet2-s2-wheel-v4")  # -------------
     parser.add_argument("--swanlab_workspace", "--wandb_entity", default="",
                         help="SwanLab workspace (defaults to your personal workspace)")
     parser.add_argument("--swanlab_run_name", "--wandb_run_name", default="",
