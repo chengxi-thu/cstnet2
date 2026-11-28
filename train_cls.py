@@ -14,7 +14,7 @@ from colorama import init
 
 from data_utils.classification_dataset import Stage2ClassificationDataset
 from functional.constraints import ground_truth_constraints_to_tensor
-from functional.checkpoint_io import safe_torch_save
+from functional.checkpoint_io import CHECKPOINT_SAVE_ATTEMPTS, safe_torch_save
 from functional.cuda_runtime import preload_cuda_nvrtc
 from functional.swanlab_utils import (
     add_swanlab_arguments,
@@ -183,10 +183,12 @@ def save_classification_checkpoints(
     save_path: str,
     best_path: str,
     save_best: bool,
+    *,
+    attempts: int = CHECKPOINT_SAVE_ATTEMPTS,
 ) -> dict[str, bool]:
-    status = {"last": safe_torch_save(checkpoint_payload, save_path)}
+    status = {"last": safe_torch_save(checkpoint_payload, save_path, attempts=attempts)}
     status["best"] = (
-        safe_torch_save(checkpoint_payload, best_path) if save_best else True
+        safe_torch_save(checkpoint_payload, best_path, attempts=attempts) if save_best else True
     )
     return status
 
@@ -261,7 +263,7 @@ def main(args):
 
 
 def train_classification(args, train_loader, test_loader, data_root, save_stem, output_dir="model_trained",
-                         *, initial_cstnet_weights=None):
+                         *, initial_cstnet_weights=None, checkpoint_save_attempts=CHECKPOINT_SAVE_ATTEMPTS):
     os.makedirs(output_dir, exist_ok=True)
     n_classes = train_loader.dataset.n_classes()
     class_names = [f"class_{index}" for index in range(n_classes)]
@@ -418,6 +420,7 @@ def train_classification(args, train_loader, test_loader, data_root, save_stem, 
             save_path,
             os.path.join(output_dir, f"{save_stem}_best.pth"),
             save_best=improved,
+            attempts=checkpoint_save_attempts,
         )
 
         swanlab_payload = {

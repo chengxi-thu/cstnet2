@@ -116,12 +116,38 @@ def wheel_splits(root: Path) -> dict[str, dict[str, list[Path]]]:
     return splits
 
 
+def load_wheel_clouds(paths: list[Path], cstnet_inputs: bool, use_stored_constraints: bool) -> dict[Path, torch.Tensor]:
+    """Load a partition into one CPU tensor so workers can share its storage."""
+    columns = 3
+    if cstnet_inputs:
+        columns = CSTNET_POINT_COLUMNS
+    elif use_stored_constraints:
+        columns = CONSTRAINT_POINT_COLUMNS
+
+    clouds = []
+    for path in paths:
+        cloud = load_constraint_point_file(
+            path, task_name="wheel classification", expected_columns=columns, allow_extra_columns=columns == 3,
+        )
+        if cstnet_inputs:
+            cloud = cloud[:, :8]  # The optional ninth column is an unused instance ID.
+        clouds.append(np.ascontiguousarray(cloud))
+    if not clouds:
+        return {}
+    packed = torch.from_numpy(np.concatenate(clouds, axis=0))
+    return dict(zip(paths, packed.split([len(cloud) for cloud in clouds])))
+
+
 class WheelPairDataset(Dataset):
-    def __init__(self, splits, offset, split, n_points, cstnet_inputs, *, use_stored_constraints=False):
+    def __init__(self, splits, offset, split, n_points, cstnet_inputs, *, use_stored_constraints=False,
+                 cloud_cache=None):
         self.classes = {"coaxis": 0, offset: 1}
         self.samples = [
             (path, label) for name, label in self.classes.items() for path in splits[name][split]
         ]
+        if cloud_cache is None:
+            cloud_cache = load_wheel_clouds([path for path, _ in self.samples], cstnet_inputs, use_stored_constraints)
+        self.clouds = [cloud_cache[path] for path, _ in self.samples]
         self.n_points = n_points
         self.cstnet_inputs = cstnet_inputs
         self.use_stored_constraints = use_stored_constraints
@@ -135,14 +161,7 @@ class WheelPairDataset(Dataset):
 
     def __getitem__(self, index):
         path, label = self.samples[index]
-        columns = 3
-        if self.cstnet_inputs:
-            columns = CSTNET_POINT_COLUMNS
-        elif self.use_stored_constraints:
-            columns = CONSTRAINT_POINT_COLUMNS
-        cloud = load_constraint_point_file(
-            path, task_name="wheel classification", expected_columns=columns, allow_extra_columns=columns == 3,
-        )
+        cloud = self.clouds[index].numpy()
         rng = np.random.default_rng(SPLIT_SEED + index) if self.is_test else None
         cloud = sample_without_replacement(cloud, self.n_points, path=path, rng=rng)
         xyz = cloud[:, :3]
@@ -178,12 +197,19 @@ def main(args):
     elif not safe_json_save(manifest, manifest_file):
         raise OSError(f"could not save the wheel split manifest to {manifest_file}")
 
+    print(f"Preloading wheel point clouds from {root} into CPU memory...", flush=True)
+    cloud_cache = {}
+    for partitions in splits.values():
+        for paths in partitions.values():
+            cloud_cache.update(load_wheel_clouds(paths, cstnet_inputs, use_stored_constraints))
+    print(f"Cached {len(cloud_cache)} wheel point clouds.", flush=True)
+
     results = {}
     offsets = [name for name in splits if name != "coaxis"]
     for i, offset in enumerate(offsets, start=1):
         train_set, test_set = (
             WheelPairDataset(splits, offset, split, args.n_points, cstnet_inputs,
-                             use_stored_constraints=use_stored_constraints)
+                             use_stored_constraints=use_stored_constraints, cloud_cache=cloud_cache)
             for split in ("train", "test")
         )
         print(f"[{i}/{len(offsets)}] coaxis vs {offset} | train={len(train_set)} test={len(test_set)}")
@@ -206,6 +232,7 @@ def main(args):
             run_args, DataLoader(train_set, shuffle=True, **loader_kwargs),
             DataLoader(test_set, shuffle=False, **loader_kwargs),
             str(root), stem, output,
+            checkpoint_save_attempts=1,
         )
         results[offset] = {"train_samples": len(train_set), "test_samples": len(test_set), **metrics}
         if not safe_json_save(results, output / "results.json"):

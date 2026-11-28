@@ -418,9 +418,10 @@ Classification reports Top-1 and Top-5 accuracy (Top-5 is clipped to the
 available class count). Segmentation reports per-class and macro F1/Dice at
 both point and Face levels.
 
-All three training tasks use the same atomic checkpoint writer. A storage I/O
-failure is retried three times; if all attempts fail, the temporary file is
-removed, the previous valid checkpoint is retained, and training continues.
+All three training tasks use the same atomic checkpoint writer. By default,
+the writer makes up to three attempts per file. Wheel classification attempts
+each last or best checkpoint once. On a final storage error the writer logs a
+warning, removes the temporary file and keeps the previous checkpoint while training continues.
 SwanLab checkpoint fields ending in `_saved` record whether each attempted epoch
 checkpoint was written successfully.
 
@@ -706,7 +707,10 @@ the `_constraints` suffix. Training starts fresh unless `--resume` is set.
 
 Run all ten experiments with one model. Each run labels `coaxis` as 0 and one
 numeric `offset-*` directory as 1. Seed 2026 assigns 80% of each class to
-training and 20% to testing. All ten runs share the same coaxis split.
+training and 20% to testing. Before the first experiment, the script reads each
+point-cloud TXT in the selected dataset once into CPU memory. All ten runs reuse
+the cached clouds and the same coaxis split. Training resamples points on each
+access, and test sampling stays deterministic.
 
 ```bash
 python train_cls_wheels.py --model pointnet

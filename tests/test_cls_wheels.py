@@ -6,12 +6,44 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
+from data_utils.constraint_dataset_common import load_constraint_point_file
 from networks.classification_models import classification_model_config, classification_model_uses_constraints
 from train_cls import classification_batch
 from train_cls_wheels import WheelPairDataset, main, parse_args, wheel_splits
 
 
 class WheelClassificationTest(unittest.TestCase):
+    def test_all_pairs_train_and_test_from_memory_after_preload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "clouds"
+            paths = []
+            for name in ["coaxis", *(f"offset-{i}" for i in range(1, 11))]:
+                (root / name).mkdir(parents=True)
+                for i in range(3):
+                    path = root / name / f"{i}.txt"
+                    np.savetxt(path, np.arange((32 + i) * 3).reshape(-1, 3))
+                    paths.append(path)
+
+            with patch("sys.argv", ["train_cls_wheels.py", "--data_root", str(root), "--output_dir", tmp,
+                                    "--workers", "0", "--n_points", "8"]):
+                args = parse_args()
+
+            with patch("train_cls_wheels.load_constraint_point_file", wraps=load_constraint_point_file) as read:
+                def train_pair(run_args, train_loader, test_loader, *args, **kwargs):
+                    if run_args.offset == "offset-1":
+                        self.assertCountEqual([call.args[0] for call in read.call_args_list], paths)
+                        root.rename(Path(tmp) / "offline")
+                    for _, labels in train_loader:
+                        self.assertEqual(set(labels.tolist()), {0, 1})
+                    sample = train_loader.dataset[0][0]
+                    self.assertFalse(np.array_equal(sample, train_loader.dataset[0][0]))
+                    torch.testing.assert_close(next(iter(test_loader)), next(iter(test_loader)))
+                    return {}
+
+                with patch("train_cls_wheels.train_classification", side_effect=train_pair):
+                    self.assertEqual(len(main(args)), 10)
+                self.assertEqual(read.call_count, len(paths))
+
     def test_training_and_test_loaders_use_the_selected_representation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -48,6 +80,7 @@ class WheelClassificationTest(unittest.TestCase):
                         main(args)
                     self.assertEqual(train.call_count, 10)
                     for call in train.call_args_list:
+                        self.assertEqual(call.kwargs["checkpoint_save_attempts"], 1)
                         args, train_loader, test_loader, selected_root, *_ = call.args
                         uses_constraints = classification_model_uses_constraints(classification_model_config(args))
                         self.assertEqual(uses_constraints, bool(channels))
@@ -72,7 +105,7 @@ class WheelClassificationTest(unittest.TestCase):
                 directory = root / name
                 directory.mkdir()
                 for i in range(10 if name == "coaxis" else 5):
-                    (directory / f"{name}_aug_{i:04}.txt").touch()
+                    (directory / f"{name}_aug_{i:04}.txt").write_text("0 0 0\n")
 
             splits = wheel_splits(root)
             self.assertEqual(wheel_splits(root), splits)
